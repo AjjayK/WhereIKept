@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Where I Kept</string>
+    <string name="action_settings">Settings</string>
+    
+    <!-- Recording -->
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="processing">Processing…</string>
+    <string name="recording_hint">Tap the microphone and say where you\'re putting things</string>
+    <string name="recording_example">Example: \"I\'m putting my keys in the kitchen drawer\"</string>
+    
+    <!-- Search -->
+    <string name="search_hint">Where did I put my keys?</string>
+    <string name="search">Search</string>
+    <string name="no_results">No items found</string>
+    <string name="try_recording">Try recording when you store items</string>
+    
+    <!-- Items -->
+    <string name="no_items">No items stored yet</string>
+    <string name="no_items_hint">Record where you put things to get started!</string>
+    <string name="add_item">Add Item</string>
+    <string name="delete">Delete</string>
+    
+    <!-- Add Item Dialog -->
+    <string name="add_item_manually">Add Item Manually</string>
+    <string name="what">What</string>
+    <string name="where">Where</string>
+    <string name="notes">Notes (optional)</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    
+    <!-- Settings -->
+    <string name="llm_settings">LLM Settings</string>
+    <string name="llm_settings_hint">Configure your local LLM or cloud API</string>
+    <string name="api_url">API URL</string>
+    <string name="model">Model</string>
+    <string name="ollama">Ollama</string>
+    <string name="openai">OpenAI</string>
+    
+    <!-- Permissions -->
+    <string name="permissions_required">Permissions Required</string>
+    <string name="permissions_explanation">Where I Kept needs microphone access to record your voice and camera access to capture images of where you store items.</string>
+    <string name="grant_permissions">Grant Permissions</string>
+    
+    <!-- Messages -->
+    <string name="item_saved">Item saved!</string>
+    <string name="item_deleted">Item deleted</string>
+    <string name="items_saved">Saved %d item(s)!</string>
+    <string name="no_items_found_in_recording">No items found in the recording. Try saying something like \'I\'m putting my keys in the drawer\'.</string>
+</resources>

@@ -28,6 +28,12 @@ import com.whereikept.app.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
+private fun formatDuration(millis: Long): String {
+    val seconds = (millis / 1000) % 60
+    val minutes = (millis / 1000) / 60
+    return String.format("%02d:%02d", minutes, seconds)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel) {
@@ -214,10 +220,10 @@ fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
         )
         
         Spacer(modifier = Modifier.height(24.dp))
-        
-        // Partial/transcribed text
+
+        // Recording duration and transcribed text
         AnimatedVisibility(
-            visible = uiState.partialText.isNotBlank() || uiState.transcribedText.isNotBlank(),
+            visible = uiState.isRecording || uiState.transcribedText.isNotBlank(),
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
@@ -227,15 +233,44 @@ fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
-                Text(
-                    text = uiState.partialText.ifBlank { uiState.transcribedText },
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (uiState.partialText.isNotBlank()) 
-                        MaterialTheme.colorScheme.onSurfaceVariant 
-                    else 
-                        MaterialTheme.colorScheme.onSurface
-                )
+                Column(modifier = Modifier.padding(16.dp)) {
+                    if (uiState.isRecording) {
+                        // Show recording duration and audio level
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatDuration(uiState.recordingDuration),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            // Audio level indicator
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { uiState.audioLevel.coerceIn(0f, 1f) },
+                                    modifier = Modifier.width(100.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    } else if (uiState.transcribedText.isNotBlank()) {
+                        // Show transcribed text
+                        Text(
+                            text = uiState.transcribedText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
             }
         }
         

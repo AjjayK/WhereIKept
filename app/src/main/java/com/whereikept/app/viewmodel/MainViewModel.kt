@@ -26,7 +26,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     data class UiState(
         val isRecording: Boolean = false,
         val transcribedText: String = "",
-        val partialText: String = "",
+        val recordingDuration: Long = 0L,
+        val audioLevel: Float = 0f,
         val isProcessing: Boolean = false,
         val searchQuery: String = "",
         val searchResults: List<ItemEntity> = emptyList(),
@@ -54,19 +55,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     is SpeechRecognitionHelper.RecognitionState.Idle -> {
                         _uiState.update { it.copy(isRecording = false) }
                     }
-                    is SpeechRecognitionHelper.RecognitionState.Listening -> {
+                    is SpeechRecognitionHelper.RecognitionState.Recording -> {
                         _uiState.update { it.copy(isRecording = true, error = null) }
                     }
                     is SpeechRecognitionHelper.RecognitionState.Processing -> {
                         _uiState.update { it.copy(isRecording = false, isProcessing = true) }
                     }
                     is SpeechRecognitionHelper.RecognitionState.Result -> {
-                        _uiState.update { 
+                        _uiState.update {
                             it.copy(
-                                isRecording = false, 
+                                isRecording = false,
                                 transcribedText = state.text,
-                                partialText = ""
-                            ) 
+                                recordingDuration = 0L,
+                                audioLevel = 0f
+                            )
                         }
                         // Auto-process the transcription
                         if (state.text.isNotBlank()) {
@@ -74,22 +76,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     is SpeechRecognitionHelper.RecognitionState.Error -> {
-                        _uiState.update { 
+                        _uiState.update {
                             it.copy(
-                                isRecording = false, 
+                                isRecording = false,
                                 isProcessing = false,
                                 error = state.message
-                            ) 
+                            )
                         }
                     }
                 }
             }
         }
-        
-        // Observe partial results
+
+        // Observe recording duration
         viewModelScope.launch {
-            speechHelper.partialResults.collect { partial ->
-                _uiState.update { it.copy(partialText = partial) }
+            speechHelper.recordingDuration.collect { duration ->
+                _uiState.update { it.copy(recordingDuration = duration) }
+            }
+        }
+
+        // Observe audio level
+        viewModelScope.launch {
+            speechHelper.audioLevel.collect { level ->
+                _uiState.update { it.copy(audioLevel = level) }
             }
         }
         
@@ -109,16 +118,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun startRecording() {
         speechHelper.resetState()
-        speechHelper.startListening()
+        speechHelper.startRecording()
     }
-    
+
     fun stopRecording() {
-        speechHelper.stopListening()
+        speechHelper.stopRecording()
     }
-    
+
     fun cancelRecording() {
-        speechHelper.cancelListening()
-        _uiState.update { it.copy(transcribedText = "", partialText = "") }
+        speechHelper.cancelRecording()
+        _uiState.update { it.copy(transcribedText = "", recordingDuration = 0L, audioLevel = 0f) }
     }
     
     private fun processTranscription(text: String) {

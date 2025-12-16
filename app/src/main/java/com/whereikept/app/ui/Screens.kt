@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -42,9 +41,7 @@ fun MainScreen(viewModel: MainViewModel) {
     
     var selectedTab by remember { mutableIntStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
     
-    // Snackbar for messages
     val snackbarHostState = remember { SnackbarHostState() }
     
     LaunchedEffect(uiState.error) {
@@ -74,18 +71,6 @@ fun MainScreen(viewModel: MainViewModel) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Where I Kept")
-                    }
-                },
-                actions = {
-                    // LLM connection indicator
-                    Icon(
-                        if (uiState.llmConnected) Icons.Default.Cloud else Icons.Default.CloudOff,
-                        contentDescription = if (uiState.llmConnected) "LLM Connected" else "LLM Offline",
-                        tint = if (uiState.llmConnected) Color(0xFF4CAF50) else Color.Gray,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                    IconButton(onClick = { showSettingsDialog = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -152,17 +137,6 @@ fun MainScreen(viewModel: MainViewModel) {
             onConfirm = { obj, loc, desc ->
                 viewModel.addItemManually(obj, loc, desc)
                 showAddDialog = false
-            }
-        )
-    }
-    
-    // Settings Dialog
-    if (showSettingsDialog) {
-        SettingsDialog(
-            onDismiss = { showSettingsDialog = false },
-            onSave = { url, model, type ->
-                viewModel.updateLlmSettings(url, model, type)
-                showSettingsDialog = false
             }
         )
     }
@@ -235,7 +209,6 @@ fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     if (uiState.isRecording) {
-                        // Show recording duration and audio level
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -246,7 +219,6 @@ fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
                                 style = MaterialTheme.typography.titleLarge,
                                 color = MaterialTheme.colorScheme.error
                             )
-                            // Audio level indicator
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     Icons.Default.GraphicEq,
@@ -263,7 +235,6 @@ fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
                             }
                         }
                     } else if (uiState.transcribedText.isNotBlank()) {
-                        // Show transcribed text
                         Text(
                             text = uiState.transcribedText,
                             style = MaterialTheme.typography.bodyLarge,
@@ -306,7 +277,6 @@ fun AnimatedRecordingIndicator(isRecording: Boolean, isProcessing: Boolean) {
         contentAlignment = Alignment.Center
     ) {
         if (isRecording) {
-            // Pulsing rings
             repeat(3) { index ->
                 Box(
                     modifier = Modifier
@@ -398,7 +368,6 @@ fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Search bar
         OutlinedTextField(
             value = searchText,
             onValueChange = { searchText = it },
@@ -421,7 +390,6 @@ fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        // Search button
         Button(
             onClick = { viewModel.searchItems(searchText) },
             enabled = searchText.isNotBlank() && !uiState.isProcessing,
@@ -441,79 +409,16 @@ fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
         }
         
         Spacer(modifier = Modifier.height(16.dp))
-        
-        // LLM Response
-        AnimatedVisibility(
-            visible = uiState.llmResponse.isNotBlank(),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = uiState.llmResponse,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+
+        AnimatedVisibility(visible = uiState.isProcessing) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Search results
-        if (uiState.searchResults.isNotEmpty()) {
-            Text(
-                "Found ${uiState.searchResults.size} matching item(s)",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            LazyColumn {
-                items(uiState.searchResults) { item ->
-                    ItemCard(item = item, onDelete = null)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-        } else if (uiState.searchQuery.isNotBlank() && !uiState.isProcessing) {
-            Box(
-                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Outlined.SearchOff,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "No items found",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Try recording when you store items",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(uiState.searchResults) {
+                ItemCard(item = it, onDelete = {})
             }
         }
     }
@@ -522,38 +427,15 @@ fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
 @Composable
 fun ItemsListScreen(items: List<ItemEntity>, onDeleteItem: (ItemEntity) -> Unit) {
     if (items.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Outlined.Inventory2,
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "No items stored yet",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Record where you put things to get started!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No items saved yet.", style = MaterialTheme.typography.bodyLarge)
         }
     } else {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(items, key = { it.id }) { item ->
+            items(items) { item ->
                 ItemCard(item = item, onDelete = { onDeleteItem(item) })
             }
         }
@@ -561,84 +443,25 @@ fun ItemsListScreen(items: List<ItemEntity>, onDeleteItem: (ItemEntity) -> Unit)
 }
 
 @Composable
-fun ItemCard(item: ItemEntity, onDelete: (() -> Unit)?) {
-    val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
-    
+fun ItemCard(item: ItemEntity, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Icon based on source type
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = when (item.sourceType) {
-                        "voice" -> Icons.Default.Mic
-                        "image" -> Icons.Default.Image
-                        else -> Icons.Default.Edit
-                    },
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
             Column(modifier = Modifier.weight(1f)) {
+                Text(item.objectName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(item.location, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = item.objectName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Place,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = item.location,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                if (item.description.isNotBlank()) {
-                    Text(
-                        text = item.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Text(
-                    text = dateFormat.format(Date(item.timestamp)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    text = "Saved on ${SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(item.timestamp))}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            
-            if (onDelete != null) {
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete Item", tint = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -656,34 +479,23 @@ fun AddItemDialog(
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Item Manually") },
+        title = { Text("Add New Item") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = objectName,
                     onValueChange = { objectName = it },
-                    label = { Text("What") },
-                    placeholder = { Text("e.g., keys, passport") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Object Name") }
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = location,
                     onValueChange = { location = it },
-                    label = { Text("Where") },
-                    placeholder = { Text("e.g., kitchen drawer") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Location") }
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Notes (optional)") },
-                    placeholder = { Text("Any additional details") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 3
+                    label = { Text("Description (Optional)") }
                 )
             }
         },
@@ -691,86 +503,6 @@ fun AddItemDialog(
             Button(
                 onClick = { onConfirm(objectName, location, description) },
                 enabled = objectName.isNotBlank() && location.isNotBlank()
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SettingsDialog(
-    onDismiss: () -> Unit,
-    onSave: (String, String, com.whereikept.app.utils.LlmService.ApiType) -> Unit
-) {
-    var baseUrl by remember { mutableStateOf("http://localhost:11434") }
-    var model by remember { mutableStateOf("llama3.2") }
-    var selectedApiType by remember { mutableStateOf(0) }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("LLM Settings") },
-        text = {
-            Column {
-                Text(
-                    "Configure your local LLM or cloud API",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // API Type selection
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    SegmentedButton(
-                        selected = selectedApiType == 0,
-                        onClick = { selectedApiType = 0 },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                    ) {
-                        Text("Ollama")
-                    }
-                    SegmentedButton(
-                        selected = selectedApiType == 1,
-                        onClick = { selectedApiType = 1 },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                    ) {
-                        Text("OpenAI")
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it },
-                    label = { Text("API URL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = { model = it },
-                    label = { Text("Model") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val apiType = if (selectedApiType == 0) 
-                        com.whereikept.app.utils.LlmService.ApiType.OLLAMA 
-                    else 
-                        com.whereikept.app.utils.LlmService.ApiType.OPENAI_COMPATIBLE
-                    onSave(baseUrl, model, apiType)
-                }
             ) {
                 Text("Save")
             }

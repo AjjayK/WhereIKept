@@ -2,6 +2,10 @@
 
 This app uses **Whisper.cpp** for offline speech-to-text transcription. Follow these steps to set up the Whisper model.
 
+## Important Note
+
+**Model files are NOT included in this repository** due to their large size (74-181 MB). You must download them separately after cloning. Model files are excluded via `.gitignore` to prevent GitHub's file size limits from blocking pushes.
+
 ## Prerequisites
 
 1. **Android NDK** must be installed via Android Studio SDK Manager
@@ -27,33 +31,45 @@ Or download and extract manually from: https://github.com/ggerganov/whisper.cpp/
 
 ### 2. Download the Whisper Model
 
-Download the **ggml-small.en-q5_1.bin** model (quantized, optimized for mobile):
+**REQUIRED:** Download a Whisper model file. The app will not work without it.
+
+Download the **ggml-tiny.en.bin** model (recommended for development):
 
 ```bash
 # Download from HuggingFace
-wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin
+cd app/src/main/assets/
+wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 ```
 
 **Model Options:**
-- `ggml-tiny.en-q5_1.bin` (~32 MB) - Fastest, least accurate
-- `ggml-base.en-q5_1.bin` (~58 MB) - Good balance
-- **`ggml-small.en-q5_1.bin` (~188 MB)** - Recommended (best quality-to-speed ratio)
-- `ggml-medium.en-q5_1.bin` (~515 MB) - High accuracy, slower
+- **`ggml-tiny.en.bin` (~74 MB)** - Recommended for development (fast, good accuracy)
+- `ggml-base.en.bin` (~142 MB) - Better accuracy, slower
+- `ggml-small.en.bin` (~466 MB) - High accuracy, slower
+- `ggml-small.en-q5_1.bin` (~188 MB) - Quantized small (good balance)
+- `ggml-medium.en-q5_1.bin` (~515 MB) - Highest accuracy, slowest
 
-### 3. Copy Model to Device
+**Important:** Place the downloaded `.bin` file in `app/src/main/assets/` directory. Do NOT commit these files to git - they are ignored via `.gitignore`.
 
-Place the model file in the app's internal storage:
+### 3. Model Loading Strategy
 
-**Option A: Using adb**
+The app automatically loads models from `app/src/main/assets/`:
+
+**At runtime:**
+1. App checks if model exists in `context.filesDir`
+2. If not found, copies from `assets/` to `context.filesDir`
+3. Loads model from `context.filesDir`
+
+**No additional steps needed** - just place the `.bin` file in `app/src/main/assets/` and build the app.
+
+**Alternative Options:**
+
+**Option A: Using adb (for testing)**
 ```bash
-adb push ggml-small.en-q5_1.bin /data/data/com.whereikept.app/files/
+adb push ggml-tiny.en.bin /data/data/com.whereikept.app/files/
 ```
 
-**Option B: Manually in code**
-Copy the model to `app/src/main/assets/` and load it on first run, then copy to `context.filesDir`.
-
-**Option C: Download at runtime**
-Implement a model downloader in the app (see example below).
+**Option B: Download at runtime**
+Implement a model downloader in the app (requires additional code).
 
 ### 4. Verify Installation
 

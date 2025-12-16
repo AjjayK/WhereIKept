@@ -86,3 +86,7 @@ lint/tmp/
 
 # Android Profiling
 *.hprof
+
+# Whisper model files (large binary files - download separately)
+# See WHISPER_SETUP.md for download instructions
+app/src/main/assets/*.bin

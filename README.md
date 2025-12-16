@@ -94,9 +94,18 @@ The app will work without an LLM using basic pattern matching, but results will 
 ### Building the App
 
 1. Clone or download this project
-2. Open in Android Studio
-3. Sync Gradle files
-4. Run on device or emulator
+2. **Download Whisper model** (required):
+   ```bash
+   cd app/src/main/assets/
+   wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+   ```
+   See [WHISPER_SETUP.md](WHISPER_SETUP.md) for detailed instructions and model options.
+
+   **Note:** Model files are NOT included in the repository due to their large size.
+
+3. Open in Android Studio
+4. Sync Gradle files
+5. Run on device or emulator
 
 ```bash
 ./gradlew assembleDebug

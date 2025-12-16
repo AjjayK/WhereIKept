@@ -83,6 +83,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Observe recording duration
+        viewModelScope.launch {
+            speechHelper.recordingDuration.collect { duration ->
+                _uiState.update { it.copy(recordingDuration = duration) }
+            }
+        }
+
+        // Observe audio level
+        viewModelScope.launch {
+            speechHelper.audioLevel.collect { level ->
+                _uiState.update { it.copy(audioLevel = level) }
+            }
+        }
+
         // Update item count
         viewModelScope.launch {
             allItems.collect { items ->

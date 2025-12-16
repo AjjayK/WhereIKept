@@ -85,8 +85,10 @@ class SpeechRecognitionHelper(private val context: Context) {
                 Log.i(TAG, "  Buffer size: $bufferSize bytes")
             }
 
-            // Initialize Whisper model
-            initializeWhisper()
+            // Initialize Whisper model asynchronously (heavy I/O operation)
+            scope.launch {
+                initializeWhisper()
+            }
 
         } catch (e: SecurityException) {
             Log.e(TAG, "ERROR: Missing microphone permission: ${e.message}")
@@ -106,13 +108,58 @@ class SpeechRecognitionHelper(private val context: Context) {
             val modelFileName = "ggml-small.en-q5_1.bin"
             val modelPath = File(context.filesDir, modelFileName)
 
+            // If model doesn't exist in app files, copy from assets
             if (!modelPath.exists()) {
-                Log.w(TAG, "Whisper model not found at: ${modelPath.absolutePath}")
-                Log.w(TAG, "Please download model to: ${modelPath.absolutePath}")
-                Log.w(TAG, "Download from: https://huggingface.co/ggerganov/whisper.cpp/tree/main")
-                Log.w(TAG, "Transcription will use placeholder until model is available")
-                isWhisperInitialized = false
-                return
+                Log.i(TAG, "Model not found in app files, copying from assets...")
+
+                try {
+                    // Check if model exists in assets
+                    val assetManager = context.assets
+                    val assetFiles = assetManager.list("") ?: emptyArray()
+
+                    if (modelFileName in assetFiles) {
+                        Log.i(TAG, "Found model in assets, copying to app files...")
+                        Log.i(TAG, "Destination: ${modelPath.absolutePath}")
+
+                        val startTime = System.currentTimeMillis()
+                        assetManager.open(modelFileName).use { input ->
+                            modelPath.outputStream().use { output ->
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                var totalBytes = 0L
+
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                    totalBytes += bytesRead
+
+                                    // Log progress every 10MB
+                                    if (totalBytes % (10 * 1024 * 1024) == 0L) {
+                                        Log.i(TAG, "Copied ${totalBytes / 1024 / 1024} MB...")
+                                    }
+                                }
+
+                                val duration = System.currentTimeMillis() - startTime
+                                Log.i(TAG, "✓ Model copied successfully!")
+                                Log.i(TAG, "  Size: ${totalBytes / 1024 / 1024} MB")
+                                Log.i(TAG, "  Time: ${duration / 1000.0}s")
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "Whisper model not found in assets!")
+                        Log.w(TAG, "The model should be bundled with the app in assets/$modelFileName")
+                        Log.w(TAG, "Transcription will use placeholder until model is available")
+                        isWhisperInitialized = false
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "ERROR copying model from assets: ${e.message}", e)
+                    isWhisperInitialized = false
+                    return
+                }
+            } else {
+                Log.i(TAG, "Model already exists in app files")
+                Log.i(TAG, "Path: ${modelPath.absolutePath}")
+                Log.i(TAG, "Size: ${modelPath.length() / 1024 / 1024} MB")
             }
 
             whisper = LibWhisper(context)

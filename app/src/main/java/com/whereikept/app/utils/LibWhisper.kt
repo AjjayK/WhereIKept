@@ -16,13 +16,19 @@ class LibWhisper(private val context: Context) {
     companion object {
         private const val TAG = "LibWhisper"
 
+        private var isLibraryLoaded = false
+
         init {
             try {
                 System.loadLibrary("whisper_android")
+                isLibraryLoaded = true
                 Log.i(TAG, "Whisper native library loaded successfully")
             } catch (e: UnsatisfiedLinkError) {
                 Log.e(TAG, "Failed to load Whisper native library", e)
-                throw e
+                Log.e(TAG, "The native library has not been compiled yet.")
+                Log.e(TAG, "Build the app to compile the native code, or disable Whisper for now.")
+                isLibraryLoaded = false
+                // Don't throw - let the app continue without Whisper
             }
         }
     }
@@ -36,6 +42,11 @@ class LibWhisper(private val context: Context) {
      * @return true if initialization successful
      */
     fun initialize(modelPath: String): Boolean {
+        if (!isLibraryLoaded) {
+            Log.e(TAG, "Cannot initialize - native library not loaded")
+            return false
+        }
+
         Log.i(TAG, "================================================")
         Log.i(TAG, "Initializing LibWhisper")
         Log.i(TAG, "Model path: $modelPath")
@@ -70,6 +81,11 @@ class LibWhisper(private val context: Context) {
      * @return Transcribed text or error message
      */
     fun transcribeFromWav(wavFile: File): String {
+        if (!isLibraryLoaded) {
+            Log.e(TAG, "ERROR: Native library not loaded")
+            return ""
+        }
+
         if (!isInitialized) {
             Log.e(TAG, "ERROR: LibWhisper not initialized! Call initialize() first")
             return ""

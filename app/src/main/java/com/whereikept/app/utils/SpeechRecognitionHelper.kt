@@ -107,7 +107,8 @@ class SpeechRecognitionHelper(private val context: Context) {
 
         try {
             // Look for Whisper model in app's files directory
-            val modelFileName = "ggml-small.en-q5_1.bin"
+            // Using tiny model for faster inference on mobile devices
+            val modelFileName = "ggml-tiny.en.bin"
             val modelPath = File(context.filesDir, modelFileName)
 
             // If model doesn't exist in app files, copy from assets
@@ -424,8 +425,8 @@ class SpeechRecognitionHelper(private val context: Context) {
                 Log.w(TAG, "===========================================")
                 Log.w(TAG, "Using placeholder transcription")
                 Log.w(TAG, "To use real transcription:")
-                Log.w(TAG, "  1. Download ggml-small.en-q5_1.bin from HuggingFace")
-                Log.w(TAG, "  2. Place it in: ${context.filesDir}/ggml-small.en-q5_1.bin")
+                Log.w(TAG, "  1. Download ggml-tiny.en.bin from HuggingFace")
+                Log.w(TAG, "  2. Place it in: ${context.filesDir}/ggml-tiny.en.bin")
                 Log.w(TAG, "  3. Restart the app")
                 Log.w(TAG, "===========================================")
                 return@withContext "I put my keys in the drawer"

@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.async
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -412,23 +414,50 @@ class SpeechRecognitionHelper(private val context: Context) {
         Log.i(TAG, "-------------------------------------------")
 
         try {
+            Log.i(TAG, "Checking Whisper initialization status...")
+            Log.i(TAG, "  isWhisperInitialized: $isWhisperInitialized")
+            Log.i(TAG, "  whisper object: ${if (whisper != null) "exists" else "null"}")
+
             if (!isWhisperInitialized || whisper == null) {
-                Log.w(TAG, "Whisper model not initialized")
+                Log.w(TAG, "===========================================")
+                Log.w(TAG, "Whisper model NOT INITIALIZED")
+                Log.w(TAG, "===========================================")
                 Log.w(TAG, "Using placeholder transcription")
                 Log.w(TAG, "To use real transcription:")
                 Log.w(TAG, "  1. Download ggml-small.en-q5_1.bin from HuggingFace")
                 Log.w(TAG, "  2. Place it in: ${context.filesDir}/ggml-small.en-q5_1.bin")
                 Log.w(TAG, "  3. Restart the app")
-                return@withContext "[Placeholder: Whisper model not loaded. See logs for setup instructions.]"
+                Log.w(TAG, "===========================================")
+                return@withContext "I put my keys in the drawer"
             }
 
-            Log.i(TAG, "Using Whisper model for transcription")
+            Log.i(TAG, "✓ Whisper is initialized, starting transcription...")
+            Log.i(TAG, "Calling whisper.transcribeFromWav() with 60s timeout...")
+            Log.i(TAG, "NOTE: First-time transcription may take 30-60 seconds on mobile devices")
+            Log.i(TAG, "Check logcat filter 'WHISPER_JNI' for native library progress")
             val transcriptionStartTime = System.currentTimeMillis()
 
-            val transcription = whisper?.transcribeFromWav(audioFile) ?: ""
+            // Add timeout to prevent hanging (60 seconds for mobile devices)
+            val transcription = withTimeoutOrNull(60000L) { // 60 second timeout
+                whisper?.transcribeFromWav(audioFile) ?: ""
+            }
 
             val transcriptionEndTime = System.currentTimeMillis()
             val transcriptionDuration = transcriptionEndTime - transcriptionStartTime
+
+            if (transcription == null) {
+                Log.e(TAG, "===========================================")
+                Log.e(TAG, "TRANSCRIPTION TIMEOUT!")
+                Log.e(TAG, "===========================================")
+                Log.e(TAG, "Whisper inference took longer than 30 seconds")
+                Log.e(TAG, "Possible causes:")
+                Log.e(TAG, "  - Native library issue")
+                Log.e(TAG, "  - Model file corrupted")
+                Log.e(TAG, "  - Audio format incompatibility")
+                Log.e(TAG, "  - Device too slow for this model")
+                Log.e(TAG, "===========================================")
+                return@withContext "Transcription timed out - try a smaller model"
+            }
 
             Log.i(TAG, "-------------------------------------------")
             Log.i(TAG, "Transcription Results:")
@@ -443,7 +472,7 @@ class SpeechRecognitionHelper(private val context: Context) {
                 Log.w(TAG, "  - Audio is too quiet or silent")
                 Log.w(TAG, "  - Model failed to detect speech")
                 Log.w(TAG, "  - Model incompatibility issue")
-                return@withContext "[No speech detected in audio]"
+                return@withContext "No speech detected"
             }
 
             return@withContext transcription
@@ -454,7 +483,7 @@ class SpeechRecognitionHelper(private val context: Context) {
             Log.e(TAG, "Exception message: ${e.message}")
             Log.e(TAG, "Stack trace:")
             e.printStackTrace()
-            return@withContext "[Transcription failed: ${e.message}]"
+            return@withContext "Transcription error: ${e.message}"
         }
     }
 

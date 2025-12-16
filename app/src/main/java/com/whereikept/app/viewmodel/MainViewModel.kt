@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.whereikept.app.data.*
 import com.whereikept.app.utils.SpeechRecognitionHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -41,7 +42,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
-        speechHelper.initialize()
+        // Initialize speech helper on background thread to avoid blocking UI
+        viewModelScope.launch(Dispatchers.IO) {
+            speechHelper.initialize()
+        }
 
         // Observe speech recognition state
         viewModelScope.launch {

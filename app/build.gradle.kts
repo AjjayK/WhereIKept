@@ -114,7 +114,13 @@ dependencies {
     
     // DataStore for preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
-    
+
+    // MediaPipe LLM for on-device inference
+    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+
+    // JSON parsing for LLM responses
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

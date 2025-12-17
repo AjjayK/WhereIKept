@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         RecordingEntity::class,
         ImageEntity::class
     ],
-    version = 1,
+    version = 2,  // Incremented for new ItemEntity fields (nearby, timeHint, confidence, evidence)
     exportSchema = false
 )
 abstract class WhereIKeptDatabase : RoomDatabase() {

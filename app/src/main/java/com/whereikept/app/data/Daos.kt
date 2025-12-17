@@ -41,12 +41,16 @@ interface ItemDao {
     
     /**
      * Simple LIKE search as fallback
+     * Searches across all text fields including new LLM-extracted metadata
      */
     @Query("""
-        SELECT * FROM items 
-        WHERE objectName LIKE '%' || :query || '%' 
+        SELECT * FROM items
+        WHERE objectName LIKE '%' || :query || '%'
         OR location LIKE '%' || :query || '%'
         OR description LIKE '%' || :query || '%'
+        OR nearby LIKE '%' || :query || '%'
+        OR timeHint LIKE '%' || :query || '%'
+        OR evidence LIKE '%' || :query || '%'
         ORDER BY timestamp DESC
     """)
     suspend fun searchItemsSimple(query: String): List<ItemEntity>

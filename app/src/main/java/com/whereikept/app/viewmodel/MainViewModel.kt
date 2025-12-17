@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.whereikept.app.data.*
 import com.whereikept.app.utils.SpeechRecognitionHelper
+import com.whereikept.app.utils.LlmService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -20,6 +21,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     val speechHelper = SpeechRecognitionHelper(application)
+    private val llmService = LlmService(application)
 
     // UI State
     data class UiState(
@@ -42,9 +44,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
-        // Initialize speech helper on background thread to avoid blocking UI
+        // Initialize speech helper and LLM on background thread to avoid blocking UI
         viewModelScope.launch(Dispatchers.IO) {
             speechHelper.initialize()
+            llmService.initialize()
         }
 
         // Observe speech recognition state
@@ -133,33 +136,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 val recordingId = repository.insertRecording(recording)
 
-                val extractedItems = extractItemsSimple(text)
+                // Use LLM for extraction instead of regex
+                Log.d(TAG, "Starting LLM extraction for: \"$text\"")
+                val extractionResponse = llmService.extractItemsFromTranscription(text)
 
-                if (extractedItems.isNotEmpty()) {
-                    val items = extractedItems.map {
+                if (extractionResponse.items.isNotEmpty()) {
+                    // Map LLM response to ItemEntity with new fields
+                    val items = extractionResponse.items.map { extracted ->
                         ItemEntity(
-                            objectName = it.objectName,
-                            location = it.location,
+                            objectName = extracted.objectName,
+                            location = extracted.location,
                             description = "From recording: \"$text\"",
+                            nearby = extracted.nearby,
+                            timeHint = extracted.timeHint,
+                            confidence = extracted.confidence,
+                            evidence = extracted.evidence,
                             sourceType = "voice"
                         )
                     }
                     repository.insertItems(items)
 
+                    // Store JSON response as processedText
                     repository.updateRecording(recording.copy(
                         id = recordingId,
                         isProcessed = true,
-                        processedText = extractedItems.joinToString("; ") { "${it.objectName} -> ${it.location}" }
+                        processedText = com.google.gson.Gson().toJson(extractionResponse)
                     ))
 
                     _uiState.update {
                         it.copy(
                             isProcessing = false,
-                            successMessage = "Saved ${extractedItems.size} item(s)!",
+                            successMessage = "Saved ${extractionResponse.items.size} item(s)!",
                             transcribedText = ""
                         )
                     }
+
+                    Log.d(TAG, "Successfully saved ${extractionResponse.items.size} item(s)")
                 } else {
+                    Log.w(TAG, "No items extracted from transcription")
                     _uiState.update {
                         it.copy(
                             isProcessing = false,
@@ -168,7 +182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing transcription: ${e.message}")
+                Log.e(TAG, "Error processing transcription: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
@@ -280,6 +294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         speechHelper.destroy()
+        llmService.release()
     }
 
     companion object {

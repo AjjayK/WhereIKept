@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
 
@@ -60,9 +61,6 @@ android {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
         }
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.5"
     }
     packaging {
         jniLibs {
@@ -135,8 +133,8 @@ dependencies {
     // DataStore for preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
-    // MediaPipe LLM for on-device inference
-    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+    // LiteRT-LM for on-device LLM inference
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.8.0")
 
     // JSON parsing for LLM responses
     implementation("com.google.code.gson:gson:2.10.1")

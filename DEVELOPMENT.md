@@ -68,17 +68,63 @@ Alternative models:
 - `ggml-base.en.bin` (142 MB) - Better accuracy
 - `ggml-small.en-q5_1.bin` (188 MB) - High accuracy
 
-### Gemma Model
+### Gemma 3n E2B Model (Recommended - 2025)
 
 **Purpose**: Structured data extraction from transcriptions
-**Size**: 1.5 GB
-**Location**: `app/src/main/assets/gemma-2b-it-gpu-int4.bin`
+**Size**: ~2.9 GB
+**Location**: `app/src/main/assets/gemma-3n-e2b-it-int4.litertlm` (or `.task`)
+**Version**: Gemma 3n E2B (Latest multimodal model optimized for mobile devices)
+**MediaPipe Version**: 0.10.27 or higher (required for Gemma 3n support)
 
-Download:
-1. Visit: https://www.kaggle.com/models/google/gemma/tfLite/gemma-2b-it-gpu-int4
-2. Sign in and download
-3. Extract `.bin` file
-4. Place in `app/src/main/assets/`
+The app now uses **Gemma 3n E2B**, Google's latest edge-optimized model with:
+- **Better Performance**: 17.6 tokens/sec (CPU) or 23.3 tokens/sec (GPU)
+- **Multimodal Support**: Text + Images (future feature ready!)
+- **Efficient Memory**: ~2.7 GB peak memory usage
+- **Knowledge Cutoff**: June 2024 (vs older models with 2023 data)
+- **Single Model File**: One model works on both CPU and GPU (backend selected at runtime)
+
+**Model Details:**
+- **Supported Formats**: `.litertlm` (RECOMMENDED), `.task`, `.bin`, `.tflite`
+- **Size**: ~2.9 GB
+- **Download**:
+  - Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm (for `.litertlm`)
+  - Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-preview (for `.task`)
+  - Kaggle: https://www.kaggle.com/models/google/gemma-3n
+- **Compatibility**: All Android devices with MediaPipe 0.10.27+
+- **Backend**: MediaPipe automatically selects GPU if available, falls back to CPU
+
+**Installation Steps:**
+1. Visit Hugging Face or Kaggle link above
+2. Sign in and accept Google's usage license
+3. Download the model file in any supported format (RECOMMENDED: `.litertlm`):
+   - **`.litertlm`** - LiteRT Language Model format (RECOMMENDED for Android with MediaPipe 0.10.27+)
+   - **`.task`** - MediaPipe Task format (may have compatibility issues with older MediaPipe versions)
+   - **`.bin`** - Binary format (legacy)
+   - **`.tflite`** - TensorFlow Lite format (legacy)
+4. Place the downloaded file directly in `app/src/main/assets/`
+5. Sync Gradle to download MediaPipe 0.10.27
+6. Rebuild the app
+
+**No renaming needed!** The app automatically detects any `.task`, `.bin`, `.tflite`, or `.litertlm` file in assets.
+
+**How it Works:**
+- MediaPipe uses a **single model file** for both CPU and GPU execution
+- Backend selection happens at runtime based on device capabilities
+- If GPU acceleration is available, MediaPipe uses it automatically
+- If GPU fails or is unavailable, MediaPipe falls back to CPU
+- No need for separate model files
+
+**Performance:**
+- **GPU Backend**: 23.3 tokens/sec (Adreno, OpenCL - if supported)
+- **CPU Backend**: 17.6 tokens/sec (XNNPACK delegate, 4 threads)
+- **NPU Backend**: 50-80+ tokens/sec (Hexagon QNN - if available on device)
+
+**File Format Notes:**
+- **`.litertlm` files** are the RECOMMENDED format for Gemma 3n on Android (MediaPipe 0.10.27+)
+- **`.task` files** are ZIP archives containing the model, tokenizer, and metadata - may have compatibility issues
+- **`.bin` and `.tflite` files** work for legacy models but `.litertlm` is optimal for Gemma 3n
+- **No conversion or renaming needed** - just drop the file into `app/src/main/assets/` and the app will find it!
+- **IMPORTANT**: If using `.task` files, ensure you have MediaPipe 0.10.27+ and the file is from the official HuggingFace repository
 
 ## LLM Extraction Flow
 
@@ -231,6 +277,44 @@ I/LlmService:   Item 1: keys -> kitchen drawer (confidence: 0.95)
 
 ### "Whisper native library not found"
 → Install Android NDK via SDK Manager: Tools → SDK Manager → SDK Tools → NDK
+
+### "Failed to initialize session: Can not open OpenCL library" or "clSetPerfHintQCOM"
+This error occurs when MediaPipe tries to use GPU acceleration but your device doesn't support the required OpenCL extensions.
+
+**What happens**:
+- MediaPipe will automatically fallback to CPU backend
+- The same model file works on both CPU and GPU
+- No action needed - the app will continue running on CPU
+
+**Root Cause**: Your device doesn't support Qualcomm OpenCL extensions. MediaPipe's automatic fallback will use CPU (XNNPACK) backend instead, which works on all devices.
+
+### "Unable to read associated file in zip archive" (.task file error)
+
+This error occurs when MediaPipe cannot read the contents of a `.task` file, usually due to:
+1. **Incompatible MediaPipe version** - You need MediaPipe 0.10.27+ for Gemma 3n
+2. **Corrupted download** - The `.task` file may be incomplete or damaged
+3. **Wrong file format** - Some `.task` files have compatibility issues
+
+**Solutions (in order of recommendation)**:
+
+1. **Use `.litertlm` format instead (RECOMMENDED)**:
+   - Download from: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm
+   - This is the official Android-optimized format
+   - More reliable than `.task` files
+
+2. **Upgrade MediaPipe**:
+   - Update `build.gradle.kts`: `implementation("com.google.mediapipe:tasks-genai:0.10.27")`
+   - Sync Gradle and rebuild
+
+3. **Re-download the model**:
+   - Delete the existing `.task` file
+   - Clear browser cache
+   - Download again from official sources
+   - Verify file size is correct (~2.9-3.1 GB)
+
+4. **Try alternative source**:
+   - If Hugging Face doesn't work, try Kaggle: https://www.kaggle.com/models/google/gemma-3n
+   - Or use Google AI Edge Gallery app to get a verified model file
 
 ## Code Style
 

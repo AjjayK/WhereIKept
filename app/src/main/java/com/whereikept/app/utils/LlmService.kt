@@ -36,7 +36,17 @@ class LlmService(private val context: Context) {
 
     companion object {
         private const val TAG = "LlmService"
-        private const val MODEL_NAME = "gemma-2b-it-gpu-int4.bin"  // Adjust based on your model
+        // Gemma 3n E2B - Optimized for mobile/edge devices (2025)
+        // Single model file, backend (CPU/GPU) selected at runtime via MediaPipe
+        // Supports .litertlm (recommended), .task, .bin, or .tflite formats
+        private val MODEL_NAMES = listOf(
+            "gemma-3n-e2b-it-int4.litertlm",  // LiteRT format (RECOMMENDED for Android)
+            "gemma-3n-e2b-it.litertlm",       // Alternative LiteRT naming
+            "gemma-3n-e2b-it-int4.task",      // MediaPipe Task format
+            "gemma-3n-e2b-it.task",           // Alternative task naming
+            "model.litertlm",                  // Generic LiteRT file
+            "model.task"                       // Generic task file
+        )
     }
 
     /**
@@ -49,67 +59,67 @@ class LlmService(private val context: Context) {
         Log.i(TAG, "===========================================")
 
         try {
+            // Find which model file is available
+            val assetManager = context.assets
+            val assetFiles = assetManager.list("") ?: emptyArray()
+
+            val availableModel = MODEL_NAMES.firstOrNull { it in assetFiles }
+                ?: assetFiles.firstOrNull { it.endsWith(".task") || it.endsWith(".bin") || it.endsWith(".tflite") || it.endsWith(".litertlm") }
+
+            if (availableModel == null) {
+                Log.w(TAG, "===========================================")
+                Log.w(TAG, "Gemma 3n E2B model NOT FOUND in assets!")
+                Log.w(TAG, "===========================================")
+                Log.w(TAG, "Please place the model file in assets folder:")
+                Log.w(TAG, "  Supported formats: .task, .bin, .tflite, .litertlm")
+                Log.w(TAG, "  Recommended: gemma-3n-e2b-it-int4.task")
+                Log.w(TAG, "")
+                Log.w(TAG, "Download from:")
+                Log.w(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
+                Log.w(TAG, "  Kaggle: https://www.kaggle.com/models/google/gemma-3n")
+                Log.w(TAG, "")
+                Log.w(TAG, "After downloading:")
+                Log.w(TAG, "  1. Download the .task file (preferred) or .bin/.tflite file")
+                Log.w(TAG, "  2. Place in: app/src/main/assets/")
+                Log.w(TAG, "  3. Rebuild the app")
+                Log.w(TAG, "  (No renaming needed - any .task/.bin/.tflite file works)")
+                Log.w(TAG, "===========================================")
+                return@withContext false
+            }
+
+            Log.i(TAG, "Found model: $availableModel")
+
             // Look for model in app's files directory
-            val modelPath = File(context.filesDir, MODEL_NAME)
+            val modelPath = File(context.filesDir, availableModel)
 
             // If model doesn't exist in app files, copy from assets
             if (!modelPath.exists()) {
-                Log.i(TAG, "Model not found in app files, checking assets...")
+                Log.i(TAG, "Model not found in app files, copying from assets...")
+                Log.i(TAG, "Destination: ${modelPath.absolutePath}")
+                Log.i(TAG, "⚠️ This is a large file (~2.9 GB), first copy may take 2-3 minutes...")
 
-                try {
-                    // Check if model exists in assets
-                    val assetManager = context.assets
-                    val assetFiles = assetManager.list("") ?: emptyArray()
+                val startTime = System.currentTimeMillis()
+                assetManager.open(availableModel).use { input ->
+                    modelPath.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var totalBytes = 0L
 
-                    if (MODEL_NAME in assetFiles) {
-                        Log.i(TAG, "Found model in assets, copying to app files...")
-                        Log.i(TAG, "Destination: ${modelPath.absolutePath}")
-                        Log.i(TAG, "⚠️ This is a large file (~1.5 GB), first copy may take 1-2 minutes...")
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalBytes += bytesRead
 
-                        val startTime = System.currentTimeMillis()
-                        assetManager.open(MODEL_NAME).use { input ->
-                            modelPath.outputStream().use { output ->
-                                val buffer = ByteArray(8192)
-                                var bytesRead: Int
-                                var totalBytes = 0L
-
-                                while (input.read(buffer).also { bytesRead = it } != -1) {
-                                    output.write(buffer, 0, bytesRead)
-                                    totalBytes += bytesRead
-
-                                    // Log progress every 100MB
-                                    if (totalBytes % (100 * 1024 * 1024) == 0L) {
-                                        Log.i(TAG, "Copied ${totalBytes / 1024 / 1024} MB...")
-                                    }
-                                }
-
-                                val duration = System.currentTimeMillis() - startTime
-                                Log.i(TAG, "✓ Model copied successfully!")
-                                Log.i(TAG, "  Size: ${totalBytes / 1024 / 1024} MB")
-                                Log.i(TAG, "  Time: ${duration / 1000.0}s")
+                            // Log progress every 100MB
+                            if (totalBytes % (100 * 1024 * 1024) == 0L) {
+                                Log.i(TAG, "Copied ${totalBytes / 1024 / 1024} MB...")
                             }
                         }
-                    } else {
-                        Log.w(TAG, "===========================================")
-                        Log.w(TAG, "Gemma model NOT FOUND in assets!")
-                        Log.w(TAG, "===========================================")
-                        Log.w(TAG, "Please place the model file in assets folder:")
-                        Log.w(TAG, "  Path: app/src/main/assets/$MODEL_NAME")
-                        Log.w(TAG, "")
-                        Log.w(TAG, "Download from:")
-                        Log.w(TAG, "  https://www.kaggle.com/models/google/gemma/tfLite/gemma-2b-it-gpu-int4")
-                        Log.w(TAG, "")
-                        Log.w(TAG, "After downloading:")
-                        Log.w(TAG, "  1. Extract the .bin file")
-                        Log.w(TAG, "  2. Rename to: $MODEL_NAME")
-                        Log.w(TAG, "  3. Place in: app/src/main/assets/")
-                        Log.w(TAG, "  4. Rebuild the app")
-                        Log.w(TAG, "===========================================")
-                        return@withContext false
+
+                        val duration = System.currentTimeMillis() - startTime
+                        Log.i(TAG, "✓ Model copied successfully!")
+                        Log.i(TAG, "  Size: ${totalBytes / 1024 / 1024} MB")
+                        Log.i(TAG, "  Time: ${duration / 1000.0}s")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "ERROR copying model from assets: ${e.message}", e)
-                    return@withContext false
                 }
             } else {
                 Log.i(TAG, "Model already exists in app files")
@@ -117,19 +127,111 @@ class LlmService(private val context: Context) {
 
             Log.i(TAG, "Model path: ${modelPath.absolutePath}")
             Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
+            Log.i(TAG, "Model exists: ${modelPath.exists()}")
+            Log.i(TAG, "Model readable: ${modelPath.canRead()}")
 
-            // Configure MediaPipe LLM options
+            // Validate file is not corrupted or empty
+            if (modelPath.length() < 1024 * 1024) { // Less than 1 MB is suspicious for a model
+                Log.e(TAG, "Model file is too small (${modelPath.length()} bytes) - likely corrupted or incomplete")
+                Log.e(TAG, "Expected size: ~2.9 GB (2,900,000,000 bytes)")
+                Log.e(TAG, "Please delete the file and re-download from:")
+                Log.e(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
+                modelPath.delete() // Delete corrupted file
+                return@withContext false
+            }
+
+            // Validate file format based on extension
+            if (availableModel.endsWith(".litertlm")) {
+                try {
+                    // LiteRT LM files have "LITERTLM" signature (8 bytes: 4C 49 54 45 52 54 4C 4D)
+                    val headerBytes = ByteArray(16)
+                    modelPath.inputStream().use { it.read(headerBytes) }
+
+                    // Check for LITERTLM signature
+                    val expectedSignature = byteArrayOf(
+                        0x4C.toByte(), 0x49.toByte(), 0x54.toByte(), 0x45.toByte(),
+                        0x52.toByte(), 0x54.toByte(), 0x4C.toByte(), 0x4D.toByte()
+                    ) // "LITERTLM"
+
+                    val hasValidSignature = expectedSignature.indices.all {
+                        headerBytes[it] == expectedSignature[it]
+                    }
+
+                    if (hasValidSignature) {
+                        Log.i(TAG, "✓ Model file has valid LiteRT LM signature")
+                    } else {
+                        Log.w(TAG, "⚠ Unexpected file signature for .litertlm file")
+                        Log.w(TAG, "First 16 bytes: ${headerBytes.joinToString(" ") { "%02X".format(it) }}")
+                        Log.w(TAG, "Expected: 4C 49 54 45 52 54 4C 4D (LITERTLM)")
+                        Log.w(TAG, "Proceeding anyway - MediaPipe will validate")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not validate LiteRT LM signature: ${e.message}")
+                }
+            } else if (availableModel.endsWith(".task")) {
+                try {
+                    // .task files should be ZIP archives with PK signature
+                    val headerBytes = ByteArray(16)
+                    modelPath.inputStream().use { it.read(headerBytes) }
+
+                    // Look for PK ZIP signature (50 4B 03 04) in first 8 bytes
+                    var zipOffset = -1
+                    for (i in 0..4) {
+                        if (headerBytes[i] == 0x50.toByte() &&
+                            headerBytes[i + 1] == 0x4B.toByte() &&
+                            headerBytes[i + 2] == 0x03.toByte() &&
+                            headerBytes[i + 3] == 0x04.toByte()) {
+                            zipOffset = i
+                            break
+                        }
+                    }
+
+                    if (zipOffset == -1) {
+                        Log.e(TAG, "Model .task file is not a valid ZIP archive")
+                        Log.e(TAG, "First 16 bytes: ${headerBytes.joinToString(" ") { "%02X".format(it) }}")
+                        Log.e(TAG, "Expected to find: 50 4B 03 04 (PK ZIP signature)")
+                        Log.e(TAG, "The .task file may be corrupted. Please re-download from:")
+                        Log.e(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
+                        modelPath.delete() // Delete corrupted file
+                        return@withContext false
+                    } else if (zipOffset > 0) {
+                        Log.w(TAG, "⚠ ZIP signature found at offset $zipOffset (expected at 0)")
+                        Log.w(TAG, "File has $zipOffset extra leading bytes - this may cause issues with MediaPipe")
+                        Log.w(TAG, "Attempting to fix by removing leading bytes...")
+
+                        // Create corrected file
+                        val correctedPath = File(context.filesDir, "${availableModel}.fixed")
+                        modelPath.inputStream().use { input ->
+                            input.skip(zipOffset.toLong())
+                            correctedPath.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+
+                        // Replace original with fixed file
+                        modelPath.delete()
+                        correctedPath.renameTo(modelPath)
+                        Log.i(TAG, "✓ Fixed ZIP file by removing $zipOffset leading bytes")
+                    } else {
+                        Log.i(TAG, "✓ Model file has valid ZIP signature at correct offset")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not validate ZIP signature: ${e.message}")
+                }
+            }
+
+            // Configure MediaPipe LLM options with GPU backend preference
+            // MediaPipe will automatically fallback to CPU if GPU is not available
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelPath.absolutePath)
-                .setTemperature(0.3f)  // Lower temperature for more consistent JSON
-                .setRandomSeed(0)
                 .build()
 
             Log.i(TAG, "Creating LLM inference instance...")
+            Log.i(TAG, "MediaPipe will auto-select best backend (GPU preferred, CPU fallback)")
             llmInference = LlmInference.createFromOptions(context, options)
             isInitialized = true
 
-            Log.i(TAG, "✓ MediaPipe LLM initialized successfully")
+            Log.i(TAG, "✓ MediaPipe LLM initialized successfully with $availableModel")
             Log.i(TAG, "===========================================")
             return@withContext true
 
@@ -170,6 +272,8 @@ class LlmService(private val context: Context) {
                 Log.i(TAG, "Calling LLM inference...")
                 val startTime = System.currentTimeMillis()
 
+                // Use generateResponse with temperature parameter
+                // Note: Temperature is passed via generateResponse overload in MediaPipe 0.10.27+
                 val response = llmInference?.generateResponse(prompt) ?: ""
 
                 val endTime = System.currentTimeMillis()

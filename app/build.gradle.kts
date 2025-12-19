@@ -70,6 +70,26 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // Don't process model files as resources
+            excludes += "*.task"
+            excludes += "*.bin"
+            excludes += "*.tflite"
+            excludes += "*.litertlm"
+        }
+    }
+
+    // Allow large model files in assets without compression
+    aaptOptions {
+        noCompress("task", "bin", "tflite", "litertlm")
+    }
+
+    // Prevent model files from being processed during merging
+    sourceSets {
+        getByName("main") {
+            assets {
+                // Model files are in assets but should not be merged as resources
+                srcDirs("src/main/assets")
+            }
         }
     }
 }

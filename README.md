@@ -70,52 +70,50 @@ A personal memory assistant Android app that helps you remember where you stored
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 
 1. **Android Studio** Arctic Fox or later
 2. **Android SDK** 26+ (Android 8.0 Oreo)
 3. **Kotlin** 1.9+
+4. **Android NDK** (install via SDK Manager for Whisper support)
 
-### LLM Setup (Optional but Recommended)
+### Setup Steps
 
-For the best experience, set up a local LLM using Ollama:
+#### 1. Download Required Models
 
-1. Install Ollama: https://ollama.ai/
-2. Pull a model:
-   ```bash
-   ollama pull llama3.2
-   ```
-3. Start Ollama server (runs on port 11434 by default)
+The app uses two AI models that must be downloaded separately (not included due to size):
 
-The app will work without an LLM using basic pattern matching, but results will be better with one.
+**Whisper Model (Speech-to-Text)** - Required, ~74 MB:
+```bash
+cd app/src/main/assets/
+wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+```
 
-### Building the App
+**Gemma Model (LLM Extraction)** - Required, ~1.5 GB:
+1. Go to: https://www.kaggle.com/models/google/gemma/tfLite/gemma-2b-it-gpu-int4
+2. Sign in and click "Download"
+3. Extract to get `gemma-2b-it-gpu-int4.bin`
+4. Copy to `app/src/main/assets/gemma-2b-it-gpu-int4.bin`
 
-1. Clone or download this project
-2. **Download Whisper model** (required):
-   ```bash
-   cd app/src/main/assets/
-   wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
-   ```
-   See [WHISPER_SETUP.md](WHISPER_SETUP.md) for detailed instructions and model options.
+Both models will auto-copy to the app on first launch.
 
-   **Note:** Model files are NOT included in the repository due to their large size.
+#### 2. Build and Run
 
+1. Clone this repository
+2. Place both model files in `app/src/main/assets/`
 3. Open in Android Studio
 4. Sync Gradle files
-5. Run on device or emulator
-
-```bash
-./gradlew assembleDebug
-```
+5. Build and install on device (physical device recommended)
+6. First launch takes 1-2 minutes to copy models
+7. Grant microphone permission when prompted
 
 ### Permissions Required
 
-- **RECORD_AUDIO**: For voice recording and transcription
-- **CAMERA**: For capturing images of stored items (future feature)
-- **INTERNET**: For communicating with local/cloud LLM
+- **RECORD_AUDIO**: Voice recording and Whisper transcription
+- **CAMERA**: Image capture of storage locations
+- **INTERNET**: Optional (only for future cloud features)
 
 ## Usage
 
@@ -140,24 +138,23 @@ The app will work without an LLM using basic pattern matching, but results will 
 3. Delete items by tapping the trash icon
 4. Add items manually with the + button
 
-## Configuration
+## How It Works
 
-### LLM Settings
+The app uses two AI models running entirely on-device:
 
-Access settings via the gear icon:
+1. **Whisper.cpp** (74 MB) - Converts voice recordings to text with high accuracy
+2. **Gemma 2B** (1.5 GB) - Extracts structured data from transcriptions using MediaPipe LLM
 
-- **API Type**: Ollama or OpenAI-compatible
-- **API URL**: Default `http://localhost:11434` for Ollama
-- **Model**: Default `llama3.2`
+When you record: *"I put my passport in the top drawer next to the stapler yesterday"*
 
-### Supported LLM Endpoints
+The app extracts:
+- **Object**: passport
+- **Location**: top drawer
+- **Nearby**: next to the stapler
+- **Time Hint**: yesterday
+- **Confidence**: 0.92
 
-| Provider | URL Format | Notes |
-|----------|------------|-------|
-| Ollama | `http://localhost:11434` | Local, free |
-| LM Studio | `http://localhost:1234` | Local, free |
-| OpenAI | `https://api.openai.com` | Requires API key (modify code) |
-| Any OpenAI-compatible | `http://your-server:port` | Self-hosted options |
+Everything runs offline with no internet required.
 
 ## Project Structure
 

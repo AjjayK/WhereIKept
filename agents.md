@@ -1,7 +1,7 @@
-# AI Agents Context & Rules - WhereIKept
+# Developer Guidelines - WhereIKept
 
 ## Project Overview
-**WhereIKept** is a personal memory assistant Android app that helps users remember where they stored their belongings. Users can record themselves while organizing, and the app extracts and stores object-location information using LLM integration for easy retrieval.
+**WhereIKept** is a personal memory assistant Android app using on-device AI (Whisper + Gemma) to extract and store object-location pairs from voice recordings.
 
 ## Technology Stack
 - **Platform**: Android
@@ -143,12 +143,10 @@ WhereIKept/
 - Never commit: `build/`, `.gradle/`, `local.properties`, API keys
 - Use the provided `.gitignore`
 
-## Important Files
-- **App Config**: [app/build.gradle.kts](app/build.gradle.kts)
-- **Manifest**: [app/src/main/AndroidManifest.xml](app/src/main/AndroidManifest.xml)
-- **Application**: [WhereIKeptApplication.kt](app/src/main/java/com/whereikept/app/WhereIKeptApplication.kt)
-- **Main Activity**: [MainActivity.kt](app/src/main/java/com/whereikept/app/MainActivity.kt)
-- **Root Build**: [build.gradle.kts](build.gradle.kts)
+## Documentation
+- **[README.md](README.md)** - Project overview and quick start guide
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Implementation details and model setup
+- **agents.md** (this file) - Developer guidelines and coding standards
 
 ## Required Permissions
 ```xml
@@ -249,9 +247,5 @@ INTERNET        # LLM API communication (Ollama/OpenAI)
 - [Material Design 3](https://m3.material.io)
 - [Kotlin Style Guide](https://developer.android.com/kotlin/style-guide)
 - [Room Documentation](https://developer.android.com/training/data-storage/room)
-- [Ollama API](https://github.com/ollama/ollama/blob/main/docs/api.md)
-
----
-**Last Updated**: 2025-12-15
-**Project Version**: 1.0
-**Maintained By**: WhereIKept Development Team
+- [MediaPipe LLM](https://developers.google.com/mediapipe/solutions/genai/llm_inference)
+- [Whisper.cpp](https://github.com/ggerganov/whisper.cpp)

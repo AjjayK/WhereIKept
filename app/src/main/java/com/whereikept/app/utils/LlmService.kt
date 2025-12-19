@@ -52,23 +52,76 @@ class LlmService(private val context: Context) {
             // Look for model in app's files directory
             val modelPath = File(context.filesDir, MODEL_NAME)
 
+            // If model doesn't exist in app files, copy from assets
             if (!modelPath.exists()) {
-                Log.w(TAG, "Model not found at: ${modelPath.absolutePath}")
-                Log.w(TAG, "Please download Gemma model and place it in app files directory")
-                Log.w(TAG, "Model name: $MODEL_NAME")
-                Log.w(TAG, "===========================================")
-                return@withContext false
+                Log.i(TAG, "Model not found in app files, checking assets...")
+
+                try {
+                    // Check if model exists in assets
+                    val assetManager = context.assets
+                    val assetFiles = assetManager.list("") ?: emptyArray()
+
+                    if (MODEL_NAME in assetFiles) {
+                        Log.i(TAG, "Found model in assets, copying to app files...")
+                        Log.i(TAG, "Destination: ${modelPath.absolutePath}")
+                        Log.i(TAG, "⚠️ This is a large file (~1.5 GB), first copy may take 1-2 minutes...")
+
+                        val startTime = System.currentTimeMillis()
+                        assetManager.open(MODEL_NAME).use { input ->
+                            modelPath.outputStream().use { output ->
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                var totalBytes = 0L
+
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                    totalBytes += bytesRead
+
+                                    // Log progress every 100MB
+                                    if (totalBytes % (100 * 1024 * 1024) == 0L) {
+                                        Log.i(TAG, "Copied ${totalBytes / 1024 / 1024} MB...")
+                                    }
+                                }
+
+                                val duration = System.currentTimeMillis() - startTime
+                                Log.i(TAG, "✓ Model copied successfully!")
+                                Log.i(TAG, "  Size: ${totalBytes / 1024 / 1024} MB")
+                                Log.i(TAG, "  Time: ${duration / 1000.0}s")
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "===========================================")
+                        Log.w(TAG, "Gemma model NOT FOUND in assets!")
+                        Log.w(TAG, "===========================================")
+                        Log.w(TAG, "Please place the model file in assets folder:")
+                        Log.w(TAG, "  Path: app/src/main/assets/$MODEL_NAME")
+                        Log.w(TAG, "")
+                        Log.w(TAG, "Download from:")
+                        Log.w(TAG, "  https://www.kaggle.com/models/google/gemma/tfLite/gemma-2b-it-gpu-int4")
+                        Log.w(TAG, "")
+                        Log.w(TAG, "After downloading:")
+                        Log.w(TAG, "  1. Extract the .bin file")
+                        Log.w(TAG, "  2. Rename to: $MODEL_NAME")
+                        Log.w(TAG, "  3. Place in: app/src/main/assets/")
+                        Log.w(TAG, "  4. Rebuild the app")
+                        Log.w(TAG, "===========================================")
+                        return@withContext false
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "ERROR copying model from assets: ${e.message}", e)
+                    return@withContext false
+                }
+            } else {
+                Log.i(TAG, "Model already exists in app files")
             }
 
-            Log.i(TAG, "Model found at: ${modelPath.absolutePath}")
+            Log.i(TAG, "Model path: ${modelPath.absolutePath}")
             Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
 
             // Configure MediaPipe LLM options
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelPath.absolutePath)
-                .setMaxTokens(512)  // Limit response length
                 .setTemperature(0.3f)  // Lower temperature for more consistent JSON
-                .setTopK(40)
                 .setRandomSeed(0)
                 .build()
 

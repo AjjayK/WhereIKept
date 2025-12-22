@@ -5,13 +5,21 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.google.gson.annotations.SerializedName
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.Conversation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.fold
 import java.io.File
 
 /**
- * LLM-based extraction service using MediaPipe Gemini Nano (Gemma).
+ * LLM-based extraction service using LiteRT-LM with Gemma 3n E2B.
  * Extracts structured object and location information from transcribed audio.
  */
 class LlmService(private val context: Context) {
@@ -30,111 +38,98 @@ class LlmService(private val context: Context) {
         val items: List<ExtractedItem>
     )
 
-    private var llmInference: LlmInference? = null
+    private var engine: Engine? = null
     private var isInitialized = false
     private val gson = Gson()
 
     companion object {
         private const val TAG = "LlmService"
-        private const val MODEL_NAME = "gemma-2b-it-gpu-int4.bin"  // Adjust based on your model
+        // Gemma 3n E2B - Optimized for mobile/edge devices (2025)
+        private const val MODEL_DIR_NAME = "models"
+        private val MODEL_NAMES = listOf(
+            "gemma-3n-e2b-it-int4.litertlm",  // LiteRT LM format (preferred)
+            "gemma-3n-e2b-it-int4.task",      // MediaPipe Task format
+            "gemma-3n-e2b-it.litertlm",       // Alternative naming
+            "gemma-3n-e2b-it.task",           // Alternative task naming
+            "model.litertlm",                  // Generic LiteRT LM file
+            "model.task",                      // Generic task file
+            "model.bin",                       // Generic binary file
+            "model.tflite"                     // Generic TFLite file
+        )
+        private val MODEL_EXTENSIONS = listOf(".litertlm", ".task", ".bin", ".tflite")
+
+        // Default LLM configuration (from Google AI Edge Gallery)
+        private const val DEFAULT_MAX_TOKEN = 1024
+        private const val DEFAULT_TOPK = 64
+        private const val DEFAULT_TOPP = 0.95
+        private const val DEFAULT_TEMPERATURE = 1.0
     }
 
     /**
-     * Initialize MediaPipe LLM inference engine.
+     * Initialize LiteRT-LM engine.
      * Should be called on a background thread.
      */
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
         Log.i(TAG, "===========================================")
-        Log.i(TAG, "Initializing MediaPipe LLM Service")
+        Log.i(TAG, "Initializing LiteRT-LM Service")
         Log.i(TAG, "===========================================")
 
         try {
-            // Look for model in app's files directory
-            val modelPath = File(context.filesDir, MODEL_NAME)
-
-            // If model doesn't exist in app files, copy from assets
-            if (!modelPath.exists()) {
-                Log.i(TAG, "Model not found in app files, checking assets...")
-
-                try {
-                    // Check if model exists in assets
-                    val assetManager = context.assets
-                    val assetFiles = assetManager.list("") ?: emptyArray()
-
-                    if (MODEL_NAME in assetFiles) {
-                        Log.i(TAG, "Found model in assets, copying to app files...")
-                        Log.i(TAG, "Destination: ${modelPath.absolutePath}")
-                        Log.i(TAG, "⚠️ This is a large file (~1.5 GB), first copy may take 1-2 minutes...")
-
-                        val startTime = System.currentTimeMillis()
-                        assetManager.open(MODEL_NAME).use { input ->
-                            modelPath.outputStream().use { output ->
-                                val buffer = ByteArray(8192)
-                                var bytesRead: Int
-                                var totalBytes = 0L
-
-                                while (input.read(buffer).also { bytesRead = it } != -1) {
-                                    output.write(buffer, 0, bytesRead)
-                                    totalBytes += bytesRead
-
-                                    // Log progress every 100MB
-                                    if (totalBytes % (100 * 1024 * 1024) == 0L) {
-                                        Log.i(TAG, "Copied ${totalBytes / 1024 / 1024} MB...")
-                                    }
-                                }
-
-                                val duration = System.currentTimeMillis() - startTime
-                                Log.i(TAG, "✓ Model copied successfully!")
-                                Log.i(TAG, "  Size: ${totalBytes / 1024 / 1024} MB")
-                                Log.i(TAG, "  Time: ${duration / 1000.0}s")
-                            }
-                        }
-                    } else {
-                        Log.w(TAG, "===========================================")
-                        Log.w(TAG, "Gemma model NOT FOUND in assets!")
-                        Log.w(TAG, "===========================================")
-                        Log.w(TAG, "Please place the model file in assets folder:")
-                        Log.w(TAG, "  Path: app/src/main/assets/$MODEL_NAME")
-                        Log.w(TAG, "")
-                        Log.w(TAG, "Download from:")
-                        Log.w(TAG, "  https://www.kaggle.com/models/google/gemma/tfLite/gemma-2b-it-gpu-int4")
-                        Log.w(TAG, "")
-                        Log.w(TAG, "After downloading:")
-                        Log.w(TAG, "  1. Extract the .bin file")
-                        Log.w(TAG, "  2. Rename to: $MODEL_NAME")
-                        Log.w(TAG, "  3. Place in: app/src/main/assets/")
-                        Log.w(TAG, "  4. Rebuild the app")
-                        Log.w(TAG, "===========================================")
-                        return@withContext false
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "ERROR copying model from assets: ${e.message}", e)
-                    return@withContext false
-                }
-            } else {
-                Log.i(TAG, "Model already exists in app files")
+            val modelPath = findModelFile()
+            if (modelPath == null) {
+                val preferredPath = context.getExternalFilesDir(MODEL_DIR_NAME)?.absolutePath ?: "N/A"
+                Log.w(TAG, "===========================================")
+                Log.w(TAG, "Gemma 3n E2B model NOT FOUND on device storage!")
+                Log.w(TAG, "===========================================")
+                Log.w(TAG, "Please place the model file in app storage:")
+                Log.w(TAG, "  Preferred location: $preferredPath")
+                Log.w(TAG, "  Supported formats: .litertlm (recommended), .task, .bin, .tflite")
+                Log.w(TAG, "  Recommended: gemma-3n-e2b-it-int4.litertlm")
+                Log.w(TAG, "")
+                Log.w(TAG, "Download from:")
+                Log.w(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
+                Log.w(TAG, "  Kaggle: https://www.kaggle.com/models/google/gemma-3n")
+                Log.w(TAG, "")
+                Log.w(TAG, "After downloading:")
+                Log.w(TAG, "  1. Download the .litertlm or .task file")
+                Log.w(TAG, "  2. Use 'adb push' to copy to: $preferredPath")
+                Log.w(TAG, "     Example: adb push gemma-3n-e2b-it-int4.litertlm $preferredPath/")
+                Log.w(TAG, "  3. Relaunch the app")
+                Log.w(TAG, "===========================================")
+                return@withContext false
             }
 
+            Log.i(TAG, "Found model: ${modelPath.name}")
             Log.i(TAG, "Model path: ${modelPath.absolutePath}")
             Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
 
-            // Configure MediaPipe LLM options
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelPath.absolutePath)
-                .setTemperature(0.3f)  // Lower temperature for more consistent JSON
-                .setRandomSeed(0)
-                .build()
+            // Configure LiteRT-LM Engine with default settings
+            Log.i(TAG, "Configuring LiteRT-LM Engine...")
 
-            Log.i(TAG, "Creating LLM inference instance...")
-            llmInference = LlmInference.createFromOptions(context, options)
+            val engineConfig = EngineConfig(
+                modelPath = modelPath.absolutePath,
+                backend = Backend.CPU,  // Use CPU to avoid OpenCL issues
+                maxNumTokens = DEFAULT_MAX_TOKEN,
+                cacheDir = context.cacheDir.absolutePath
+            )
+
+            Log.i(TAG, "Creating and initializing engine...")
+            val initStartTime = System.currentTimeMillis()
+
+            engine = Engine(engineConfig)
+            engine?.initialize()
+
+            val initDuration = System.currentTimeMillis() - initStartTime
             isInitialized = true
 
-            Log.i(TAG, "✓ MediaPipe LLM initialized successfully")
+            Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
+            Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
             Log.i(TAG, "===========================================")
+
             return@withContext true
 
         } catch (e: Exception) {
-            Log.e(TAG, "ERROR initializing MediaPipe LLM: ${e.message}", e)
+            Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
             Log.e(TAG, "===========================================")
             isInitialized = false
             return@withContext false
@@ -153,7 +148,7 @@ class LlmService(private val context: Context) {
             Log.i(TAG, "Transcription: \"$transcription\"")
             Log.i(TAG, "LLM initialized: $isInitialized")
 
-            if (!isInitialized || llmInference == null) {
+            if (!isInitialized || engine == null) {
                 Log.w(TAG, "LLM not initialized, attempting initialization...")
                 val success = initialize()
                 if (!success) {
@@ -167,33 +162,60 @@ class LlmService(private val context: Context) {
                 Log.i(TAG, "Generated prompt (${prompt.length} chars)")
                 Log.d(TAG, "Full prompt:\n$prompt")
 
-                Log.i(TAG, "Calling LLM inference...")
-                val startTime = System.currentTimeMillis()
+                Log.i(TAG, "Creating conversation...")
 
-                val response = llmInference?.generateResponse(prompt) ?: ""
+                val conversationConfig = ConversationConfig(
+                    systemMessage = Message.of("You are a JSON extraction assistant. Extract object and location information from text. Respond ONLY with valid JSON."),
+                    samplerConfig = SamplerConfig(
+                        topK = DEFAULT_TOPK,
+                        topP = DEFAULT_TOPP,
+                        temperature = DEFAULT_TEMPERATURE
+                    )
+                )
 
-                val endTime = System.currentTimeMillis()
-                val duration = endTime - startTime
+                engine!!.createConversation(conversationConfig).use { conversation ->
+                    Log.i(TAG, "Conversation created successfully")
+                    Log.i(TAG, "Calling LiteRT-LM inference...")
+                    val startTime = System.currentTimeMillis()
 
-                Log.i(TAG, "-------------------------------------------")
-                Log.i(TAG, "LLM Response received:")
-                Log.i(TAG, "  Duration: $duration ms")
-                Log.i(TAG, "  Response length: ${response.length} chars")
-                Log.d(TAG, "  Raw response:\n$response")
+                    val userMessage = Message.of(prompt)
 
-                // Parse JSON response
-                val extractionResponse = parseJsonResponse(response)
+                    // Collect streaming response into a single string
+                    val response = conversation.sendMessageAsync(userMessage)
+                        .catch { e ->
+                            Log.e(TAG, "Error during inference: ${e.message}", e)
+                            throw e
+                        }
+                        .fold(StringBuilder()) { acc, message ->
+                            acc.append(message.toString())
+                            acc
+                        }
+                        .toString()
 
-                Log.i(TAG, "✓ Extracted ${extractionResponse.items.size} item(s)")
-                extractionResponse.items.forEachIndexed { index, item ->
-                    Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - startTime
+
+                    Log.i(TAG, "-------------------------------------------")
+                    Log.i(TAG, "LLM Response received:")
+                    Log.i(TAG, "  Duration: $duration ms")
+                    Log.i(TAG, "  Response length: ${response.length} chars")
+                    Log.d(TAG, "  Raw response:\n$response")
+
+                    // Parse JSON response
+                    val extractionResponse = parseJsonResponse(response)
+
+                    Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s)")
+                    extractionResponse.items.forEachIndexed { index, item ->
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                    }
+                    Log.i(TAG, "===========================================")
+
+                    return@withContext extractionResponse
                 }
-                Log.i(TAG, "===========================================")
-
-                return@withContext extractionResponse
 
             } catch (e: Exception) {
                 Log.e(TAG, "ERROR during extraction: ${e.message}", e)
+                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
                 Log.e(TAG, "===========================================")
                 return@withContext ExtractionResponse(emptyList())
             }
@@ -206,7 +228,7 @@ class LlmService(private val context: Context) {
      */
     private fun buildExtractionPrompt(transcription: String): String {
         return """
-You are a JSON extraction assistant. Extract object and location information from the following text.
+Extract object and location information from the following text.
 
 IMPORTANT: Respond ONLY with valid JSON. Do not include any explanatory text before or after the JSON.
 
@@ -334,15 +356,70 @@ JSON response:
         }
     }
 
+    private fun findModelFile(): File? {
+        val candidateDirs = listOfNotNull(
+            context.getExternalFilesDir(MODEL_DIR_NAME),  // Check external files/models/ first
+            context.getExternalFilesDir(null),  // Then external files/
+            context.filesDir  // Finally internal storage
+        ).distinct()
+
+        // First, check for and fix any .fixed files from previous bug
+        candidateDirs.forEach { dir ->
+            dir.listFiles()?.forEach { file ->
+                if (file.name.endsWith(".task.fixed", ignoreCase = true) ||
+                    file.name.endsWith(".bin.fixed", ignoreCase = true) ||
+                    file.name.endsWith(".tflite.fixed", ignoreCase = true) ||
+                    file.name.endsWith(".litertlm.fixed", ignoreCase = true)) {
+
+                    val correctName = file.name.removeSuffix(".fixed")
+                    val correctFile = File(file.parentFile, correctName)
+
+                    Log.w(TAG, "Found orphaned .fixed file: ${file.name}")
+                    Log.w(TAG, "Renaming to: $correctName")
+
+                    try {
+                        val renameSuccess = file.renameTo(correctFile)
+                        if (!renameSuccess) {
+                            // Fallback to copy if rename fails
+                            file.copyTo(correctFile, overwrite = true)
+                            file.delete()
+                        }
+                        Log.i(TAG, "✓ Successfully renamed .fixed file")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to rename .fixed file: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        val namedMatch = candidateDirs
+            .asSequence()
+            .flatMap { dir -> MODEL_NAMES.asSequence().map { File(dir, it) } }
+            .firstOrNull { it.exists() && it.isFile }
+
+        if (namedMatch != null) {
+            return namedMatch
+        }
+
+        return candidateDirs
+            .asSequence()
+            .flatMap { dir -> dir.listFiles()?.asSequence() ?: emptySequence() }
+            .firstOrNull { file ->
+                file.isFile &&
+                MODEL_EXTENSIONS.any { file.name.endsWith(it, ignoreCase = true) } &&
+                !file.name.startsWith("ggml-", ignoreCase = true) // Exclude whisper models
+            }
+    }
+
     /**
      * Release LLM resources when done.
      */
     fun release() {
         try {
-            llmInference?.close()
-            llmInference = null
+            engine?.close()
+            engine = null
             isInitialized = false
-            Log.i(TAG, "✓ LLM resources released")
+            Log.i(TAG, "LiteRT-LM resources released")
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing LLM: ${e.message}", e)
         }

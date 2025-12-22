@@ -87,6 +87,17 @@ lint/tmp/
 # Android Profiling
 *.hprof
 
-# Whisper model files (large binary files - download separately)
-# See WHISPER_SETUP.md for download instructions
+# AI Model files (large binary files - download separately)
+# See DEVELOPMENT.md for download instructions
+# Whisper models (~74-188 MB)
 *.bin
+app/src/main/assets/ggml-*.bin
+# Gemma 3n E2B models (~2.9 GB)
+app/src/main/assets/*.task
+app/src/main/assets/*.tflite
+app/src/main/assets/*.litertlm
+# Exclude model files with various naming patterns
+*gemma*.task
+*gemma*.tflite
+*gemma*.litertlm
+model.task

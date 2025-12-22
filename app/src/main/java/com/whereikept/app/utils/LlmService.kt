@@ -57,6 +57,12 @@ class LlmService(private val context: Context) {
             "model.tflite"                     // Generic TFLite file
         )
         private val MODEL_EXTENSIONS = listOf(".litertlm", ".task", ".bin", ".tflite")
+
+        // Default LLM configuration (from Google AI Edge Gallery)
+        private const val DEFAULT_MAX_TOKEN = 1024
+        private const val DEFAULT_TOPK = 64
+        private const val DEFAULT_TOPP = 0.95
+        private const val DEFAULT_TEMPERATURE = 1.0
     }
 
     /**
@@ -67,15 +73,6 @@ class LlmService(private val context: Context) {
         Log.i(TAG, "===========================================")
         Log.i(TAG, "Initializing LiteRT-LM Service")
         Log.i(TAG, "===========================================")
-
-        // Try to load OpenCL library explicitly before initializing LiteRT
-        try {
-            System.loadLibrary("OpenCL")
-            Log.i(TAG, "Successfully loaded OpenCL library")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "Could not load OpenCL library: ${e.message}")
-            Log.w(TAG, "Will rely on system library loading or fallback to CPU")
-        }
 
         try {
             val modelPath = findModelFile()
@@ -106,71 +103,30 @@ class LlmService(private val context: Context) {
             Log.i(TAG, "Model path: ${modelPath.absolutePath}")
             Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
 
-            // Configure LiteRT-LM Engine - Try GPU first, fallback to CPU
+            // Configure LiteRT-LM Engine with default settings
             Log.i(TAG, "Configuring LiteRT-LM Engine...")
 
-            var initSuccess = false
-            var usedBackend = "Unknown"
+            val engineConfig = EngineConfig(
+                modelPath = modelPath.absolutePath,
+                backend = Backend.CPU,  // Use CPU to avoid OpenCL issues
+                maxNumTokens = DEFAULT_MAX_TOKEN,
+                cacheDir = context.cacheDir.absolutePath
+            )
 
-            // Try GPU backend first
-            for (backend in listOf(Backend.GPU, Backend.CPU)) {
-                try {
-                    val backendName = if (backend == Backend.GPU) "GPU" else "CPU"
-                    Log.i(TAG, "Attempting initialization with $backendName backend...")
+            Log.i(TAG, "Creating and initializing engine...")
+            val initStartTime = System.currentTimeMillis()
 
-                    val engineConfig = EngineConfig(
-                        modelPath = modelPath.absolutePath,
-                        backend = backend,
-                        cacheDir = context.cacheDir.absolutePath
-                    )
+            engine = Engine(engineConfig)
+            engine?.initialize()
 
-                    Log.i(TAG, "Creating Engine instance...")
-                    Log.i(TAG, "Backend: $backendName")
-                    Log.i(TAG, "Cache directory: ${context.cacheDir.absolutePath}")
+            val initDuration = System.currentTimeMillis() - initStartTime
+            isInitialized = true
 
-                    engine = Engine(engineConfig)
+            Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
+            Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
+            Log.i(TAG, "===========================================")
 
-                    Log.i(TAG, "Initializing engine (this may take 5-10 seconds)...")
-                    val initStartTime = System.currentTimeMillis()
-
-                    engine?.initialize()
-
-                    val initDuration = System.currentTimeMillis() - initStartTime
-                    isInitialized = true
-                    usedBackend = backendName
-
-                    Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully with $backendName")
-                    Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
-                    Log.i(TAG, "===========================================")
-                    initSuccess = true
-                    break
-
-                } catch (e: Exception) {
-                    val backendName = if (backend == Backend.GPU) "GPU" else "CPU"
-                    Log.w(TAG, "$backendName backend failed: ${e.message}")
-                    if (backend == Backend.CPU) {
-                        // If CPU also fails, this is a real error
-                        Log.e(TAG, "Failed to initialize Engine with any backend: ${e.message}", e)
-                        Log.e(TAG, "Error type: ${e.javaClass.simpleName}")
-                        Log.e(TAG, "Stack trace:")
-                        e.printStackTrace()
-                        Log.e(TAG, "")
-                        Log.e(TAG, "This may indicate:")
-                        Log.e(TAG, "  1. Model file is corrupted or incomplete")
-                        Log.e(TAG, "  2. Model format is incompatible with LiteRT-LM")
-                        Log.e(TAG, "  3. Insufficient device resources")
-                        Log.e(TAG, "")
-                        Log.e(TAG, "Please re-download the model from:")
-                        Log.e(TAG, "  https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
-                        Log.e(TAG, "")
-                        Log.e(TAG, "Ensure you download the .litertlm file (preferred)")
-                        Log.e(TAG, "===========================================")
-                        return@withContext false
-                    }
-                }
-            }
-
-            return@withContext initSuccess
+            return@withContext true
 
         } catch (e: Exception) {
             Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
@@ -207,12 +163,13 @@ class LlmService(private val context: Context) {
                 Log.d(TAG, "Full prompt:\n$prompt")
 
                 Log.i(TAG, "Creating conversation...")
+
                 val conversationConfig = ConversationConfig(
                     systemMessage = Message.of("You are a JSON extraction assistant. Extract object and location information from text. Respond ONLY with valid JSON."),
                     samplerConfig = SamplerConfig(
-                        topK = 40,
-                        topP = 0.95,
-                        temperature = 0.2 // Lower temperature for more deterministic JSON output
+                        topK = DEFAULT_TOPK,
+                        topP = DEFAULT_TOPP,
+                        temperature = DEFAULT_TEMPERATURE
                     )
                 )
 
@@ -259,7 +216,6 @@ class LlmService(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "ERROR during extraction: ${e.message}", e)
                 Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
-                e.printStackTrace()
                 Log.e(TAG, "===========================================")
                 return@withContext ExtractionResponse(emptyList())
             }

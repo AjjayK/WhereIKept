@@ -5,7 +5,7 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-android {
+android {0
     namespace = "com.whereikept.app"
     compileSdk = 34
 
@@ -134,7 +134,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
     // LiteRT-LM for on-device LLM inference
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.8.0")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha01")
 
     // JSON parsing for LLM responses
     implementation("com.google.code.gson:gson:2.10.1")

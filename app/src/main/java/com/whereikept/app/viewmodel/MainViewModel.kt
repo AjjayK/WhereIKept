@@ -140,6 +140,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d(TAG, "Starting LLM extraction for: \"$text\"")
                 val extractionResponse = llmService.extractItemsFromTranscription(text)
 
+                // VERIFICATION: Log the actual extraction response
+                Log.i(TAG, "=== LLM EXTRACTION VERIFICATION ===")
+                Log.i(TAG, "Extraction completed successfully")
+                Log.i(TAG, "Items count: ${extractionResponse.items.size}")
+                Log.i(TAG, "Full response: ${com.google.gson.Gson().toJson(extractionResponse)}")
+                Log.i(TAG, "====================================")
+
                 if (extractionResponse.items.isNotEmpty()) {
                     // Map LLM response to ItemEntity with new fields
                     val items = extractionResponse.items.map { extracted ->
@@ -174,6 +181,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Log.d(TAG, "Successfully saved ${extractionResponse.items.size} item(s)")
                 } else {
                     Log.w(TAG, "No items extracted from transcription")
+                    Log.w(TAG, "LLM returned empty items array - this means LLM ran successfully but found nothing to extract")
+                    Log.w(TAG, "Input was: \"$text\"")
                     _uiState.update {
                         it.copy(
                             isProcessing = false,

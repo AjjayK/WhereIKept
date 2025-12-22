@@ -40,6 +40,7 @@ class LlmService(private val context: Context) {
 
     private var engine: Engine? = null
     private var isInitialized = false
+    private var currentBackend: Backend = Backend.GPU  // Track which backend is being used
     private val gson = Gson()
 
     companion object {
@@ -103,30 +104,53 @@ class LlmService(private val context: Context) {
             Log.i(TAG, "Model path: ${modelPath.absolutePath}")
             Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
 
-            // Configure LiteRT-LM Engine with default settings
+            // Try GPU first, fallback to CPU if it fails
             Log.i(TAG, "Configuring LiteRT-LM Engine...")
 
-            val engineConfig = EngineConfig(
-                modelPath = modelPath.absolutePath,
-                backend = Backend.CPU,  // Use CPU to avoid OpenCL issues
-                maxNumTokens = DEFAULT_MAX_TOKEN,
-                cacheDir = context.cacheDir.absolutePath
-            )
+            for (backend in listOf(Backend.GPU, Backend.CPU)) {
+                try {
+                    val backendName = if (backend == Backend.GPU) "GPU" else "CPU"
+                    Log.i(TAG, "Attempting initialization with $backendName backend...")
 
-            Log.i(TAG, "Creating and initializing engine...")
-            val initStartTime = System.currentTimeMillis()
+                    val engineConfig = EngineConfig(
+                        modelPath = modelPath.absolutePath,
+                        backend = backend,
+                        maxNumTokens = DEFAULT_MAX_TOKEN,
+                        cacheDir = context.cacheDir.absolutePath
+                    )
 
-            engine = Engine(engineConfig)
-            engine?.initialize()
+                    Log.i(TAG, "Creating and initializing engine...")
+                    val initStartTime = System.currentTimeMillis()
 
-            val initDuration = System.currentTimeMillis() - initStartTime
-            isInitialized = true
+                    engine = Engine(engineConfig)
+                    engine?.initialize()
 
-            Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
-            Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
-            Log.i(TAG, "===========================================")
+                    val initDuration = System.currentTimeMillis() - initStartTime
+                    isInitialized = true
+                    currentBackend = backend  // Track successful backend
 
-            return@withContext true
+                    Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully with $backendName")
+                    Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
+                    Log.i(TAG, "===========================================")
+
+                    return@withContext true
+
+                } catch (e: Exception) {
+                    val backendName = if (backend == Backend.GPU) "GPU" else "CPU"
+                    Log.w(TAG, "$backendName backend failed: ${e.message}")
+
+                    if (backend == Backend.CPU) {
+                        // If CPU also fails, this is a real error
+                        Log.e(TAG, "Failed to initialize with both GPU and CPU backends")
+                        Log.e(TAG, "Error: ${e.message}", e)
+                        Log.e(TAG, "===========================================")
+                        return@withContext false
+                    }
+                    // Otherwise, continue to try CPU
+                }
+            }
+
+            return@withContext false
 
         } catch (e: Exception) {
             Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
@@ -157,68 +181,137 @@ class LlmService(private val context: Context) {
                 }
             }
 
+            // Try extraction, with automatic CPU fallback on OpenCL error
+            var retryWithCpu = false
+
             try {
-                val prompt = buildExtractionPrompt(transcription)
-                Log.i(TAG, "Generated prompt (${prompt.length} chars)")
-                Log.d(TAG, "Full prompt:\n$prompt")
-
-                Log.i(TAG, "Creating conversation...")
-
-                val conversationConfig = ConversationConfig(
-                    systemMessage = Message.of("You are a JSON extraction assistant. Extract object and location information from text. Respond ONLY with valid JSON."),
-                    samplerConfig = SamplerConfig(
-                        topK = DEFAULT_TOPK,
-                        topP = DEFAULT_TOPP,
-                        temperature = DEFAULT_TEMPERATURE
-                    )
-                )
-
-                engine!!.createConversation(conversationConfig).use { conversation ->
-                    Log.i(TAG, "Conversation created successfully")
-                    Log.i(TAG, "Calling LiteRT-LM inference...")
-                    val startTime = System.currentTimeMillis()
-
-                    val userMessage = Message.of(prompt)
-
-                    // Collect streaming response into a single string
-                    val response = conversation.sendMessageAsync(userMessage)
-                        .catch { e ->
-                            Log.e(TAG, "Error during inference: ${e.message}", e)
-                            throw e
-                        }
-                        .fold(StringBuilder()) { acc, message ->
-                            acc.append(message.toString())
-                            acc
-                        }
-                        .toString()
-
-                    val endTime = System.currentTimeMillis()
-                    val duration = endTime - startTime
-
-                    Log.i(TAG, "-------------------------------------------")
-                    Log.i(TAG, "LLM Response received:")
-                    Log.i(TAG, "  Duration: $duration ms")
-                    Log.i(TAG, "  Response length: ${response.length} chars")
-                    Log.d(TAG, "  Raw response:\n$response")
-
-                    // Parse JSON response
-                    val extractionResponse = parseJsonResponse(response)
-
-                    Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s)")
-                    extractionResponse.items.forEachIndexed { index, item ->
-                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
-                    }
-                    Log.i(TAG, "===========================================")
-
-                    return@withContext extractionResponse
-                }
-
+                return@withContext performExtraction(transcription)
             } catch (e: Exception) {
                 Log.e(TAG, "ERROR during extraction: ${e.message}", e)
                 Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
-                Log.e(TAG, "===========================================")
-                return@withContext ExtractionResponse(emptyList())
+
+                // Check if this is OpenCL error and we're on GPU backend
+                val isOpenClError = e.message?.contains("OpenCL", ignoreCase = true) == true
+
+                if (isOpenClError && currentBackend == Backend.GPU) {
+                    Log.w(TAG, "===========================================")
+                    Log.w(TAG, "OpenCL error detected with GPU backend")
+                    Log.w(TAG, "Attempting to reinitialize with CPU backend...")
+                    Log.w(TAG, "===========================================")
+
+                    try {
+                        // Release GPU engine
+                        engine?.close()
+                        engine = null
+                        isInitialized = false
+
+                        // Reinitialize with CPU backend
+                        val modelPath = findModelFile()
+                        if (modelPath != null) {
+                            val engineConfig = EngineConfig(
+                                modelPath = modelPath.absolutePath,
+                                backend = Backend.CPU,
+                                maxNumTokens = DEFAULT_MAX_TOKEN,
+                                cacheDir = context.cacheDir.absolutePath
+                            )
+
+                            Log.i(TAG, "Reinitializing with CPU backend...")
+                            engine = Engine(engineConfig)
+                            engine?.initialize()
+                            isInitialized = true
+                            currentBackend = Backend.CPU
+
+                            Log.i(TAG, "✓ Successfully reinitialized with CPU backend")
+                            Log.i(TAG, "Retrying extraction with CPU backend...")
+
+                            // Retry the extraction with CPU (no recursion, inline retry)
+                            retryWithCpu = true
+                        }
+                    } catch (reinitError: Exception) {
+                        Log.e(TAG, "Failed to reinitialize with CPU: ${reinitError.message}")
+                        isInitialized = false
+                    }
+                }
+
+                if (!retryWithCpu) {
+                    Log.e(TAG, "===========================================")
+                    return@withContext ExtractionResponse(emptyList())
+                }
             }
+
+            // Retry with CPU if fallback was successful
+            if (retryWithCpu) {
+                try {
+                    return@withContext performExtraction(transcription)
+                } catch (e: Exception) {
+                    Log.e(TAG, "ERROR during CPU retry: ${e.message}", e)
+                    Log.e(TAG, "===========================================")
+                    return@withContext ExtractionResponse(emptyList())
+                }
+            }
+
+            return@withContext ExtractionResponse(emptyList())
+        }
+    }
+
+    /**
+     * Perform the actual extraction logic.
+     * Separated to avoid recursion issues.
+     */
+    private suspend fun performExtraction(transcription: String): ExtractionResponse {
+        val prompt = buildExtractionPrompt(transcription)
+        Log.i(TAG, "Generated prompt (${prompt.length} chars)")
+        Log.d(TAG, "Full prompt:\n$prompt")
+
+        Log.i(TAG, "Creating conversation...")
+
+        val conversationConfig = ConversationConfig(
+            systemMessage = Message.of("You are a JSON extraction assistant. Extract object and location information from text. Respond ONLY with valid JSON."),
+            samplerConfig = SamplerConfig(
+                topK = DEFAULT_TOPK,
+                topP = DEFAULT_TOPP,
+                temperature = DEFAULT_TEMPERATURE
+            )
+        )
+
+        engine!!.createConversation(conversationConfig).use { conversation ->
+            Log.i(TAG, "Conversation created successfully")
+            Log.i(TAG, "Calling LiteRT-LM inference...")
+            val startTime = System.currentTimeMillis()
+
+            val userMessage = Message.of(prompt)
+
+            // Collect streaming response into a single string
+            val response = conversation.sendMessageAsync(userMessage)
+                .catch { e ->
+                    Log.e(TAG, "Error during inference: ${e.message}", e)
+                    throw e
+                }
+                .fold(StringBuilder()) { acc, message ->
+                    acc.append(message.toString())
+                    acc
+                }
+                .toString()
+
+            val endTime = System.currentTimeMillis()
+            val duration = endTime - startTime
+
+            Log.i(TAG, "-------------------------------------------")
+            Log.i(TAG, "LLM Response received:")
+            Log.i(TAG, "  Duration: $duration ms")
+            Log.i(TAG, "  Response length: ${response.length} chars")
+            Log.d(TAG, "  Raw response:\n$response")
+
+            // Parse JSON response
+            val extractionResponse = parseJsonResponse(response)
+
+            Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s)")
+            extractionResponse.items.forEachIndexed { index, item ->
+                Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+            }
+            Log.i(TAG, "===========================================")
+
+            return extractionResponse
         }
     }
 
@@ -419,6 +512,7 @@ JSON response:
             engine?.close()
             engine = null
             isInitialized = false
+            currentBackend = Backend.GPU  // Reset to default
             Log.i(TAG, "LiteRT-LM resources released")
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing LLM: ${e.message}", e)

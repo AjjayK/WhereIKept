@@ -1,5 +1,8 @@
 package com.whereikept.app.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,30 +10,37 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.whereikept.app.viewmodel.*
 import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.PathEffect
 
 // ========================================
-// STATE: REVIEW_EDITING
+// STATE: REVIEW_EDITING - Modern Redesign
 // ========================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,246 +49,206 @@ fun ReviewEditingStateScreen(
     uiState: CaptureUiState,
     viewModel: CaptureViewModel
 ) {
-    val scrollState = rememberScrollState()
-
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
+            .background(Color.Black)
     ) {
-        // Image with tag overlays
+        // Fullscreen Image with overlays
         if (uiState.capturedImageUri != null) {
+            // Background Image (full screen)
+            AsyncImage(
+                model = uiState.capturedImageUri,
+                contentDescription = "Captured image",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            // Gradient overlay at top for better button visibility
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(300.dp)
-            ) {
-                TagOverlayCanvas(
-                    imageUri = uiState.capturedImageUri,
-                    editableTags = uiState.editableTags.filter {
-                        it.tag.positionX != null && it.tag.positionY != null
-                    },
-                    onTagDragged = { tagId, x, y ->
-                        viewModel.updateTagPosition(tagId, x, y)
-                    },
-                    onTagClick = { tagId ->
-                        viewModel.showEditTagDialog(tagId)
-                    }
-                )
-            }
-
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
-        }
-
-        // Unplaced tags section
-        if (uiState.unplacedTags.isNotEmpty()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Tags (Tap to edit, drag to position on image):",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(uiState.unplacedTags) { tag ->
-                        TagChip(
-                            tag = tag,
-                            onClick = { viewModel.showEditTagDialog(tag.id) }
+                    .height(200.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.5f),
+                                Color.Transparent
+                            )
                         )
-                    }
+                    )
+            )
+
+            // Placed tags with connector lines
+            uiState.editableTags
+                .filter { it.tag.positionX != null && it.tag.positionY != null }
+                .forEach { editableTag ->
+                    TagWithConnector(
+                        tag = editableTag.tag,
+                        isDragging = editableTag.isDragging,
+                        onDrag = { deltaX, deltaY ->
+                            viewModel.updateTagPosition(
+                                editableTag.tag.id,
+                                (editableTag.tag.positionX!! + deltaX).coerceIn(0f, 1000f),
+                                (editableTag.tag.positionY!! + deltaY).coerceIn(0f, 1000f)
+                            )
+                        },
+                        onEdit = { viewModel.showEditTagDialog(editableTag.tag.id) },
+                        onDelete = { viewModel.deleteTag(editableTag.tag.id) }
+                    )
+                }
+        } else {
+            // No image placeholder
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF1F2937)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Image,
+                        contentDescription = null,
+                        modifier = Modifier.size(80.dp),
+                        tint = Color.White.copy(alpha = 0.3f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "No image captured",
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
             }
-
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
-        // All tags list
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        // Top floating action bar with glassmorphism
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .zIndex(10f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Back button
+            FloatingActionButton(
+                onClick = { viewModel.resetToIdle() },
+                modifier = Modifier.size(48.dp),
+                containerColor = Color.Black.copy(alpha = 0.3f),
+                contentColor = Color.White,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp)
             ) {
-                Text(
-                    text = "All Tags (${uiState.editableTags.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
                 )
+            }
 
-                OutlinedButton(
+            // Right side buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Add Tag button
+                Button(
                     onClick = { viewModel.showAddTagDialog() },
-                    modifier = Modifier.height(36.dp)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Black.copy(alpha = 0.3f),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    elevation = ButtonDefaults.buttonElevation(0.dp),
+                    modifier = Modifier.height(48.dp)
                 ) {
                     Icon(
                         Icons.Default.Add,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add Tag", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (uiState.editableTags.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                // Done button
+                Button(
+                    onClick = { viewModel.saveAndSubmit() },
+                    enabled = uiState.editableTags.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF4F46E5), // Indigo primary
+                        contentColor = Color.White,
+                        disabledContainerColor = Color(0xFF4F46E5).copy(alpha = 0.5f),
+                        disabledContentColor = Color.White.copy(alpha = 0.7f)
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.height(48.dp),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 8.dp,
+                        pressedElevation = 4.dp
                     )
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.Label,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "No tags found",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "Tap 'Add' to create tags manually",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            } else {
-                uiState.editableTags.forEach { editableTag ->
-                    TagListItem(
-                        tag = editableTag.tag,
-                        onEdit = { viewModel.showEditTagDialog(editableTag.tag.id) },
-                        onDelete = { viewModel.deleteTag(editableTag.tag.id) }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Done", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
-        // Transcript section (collapsible)
-        if (uiState.transcriptionText.isNotBlank()) {
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-            var isExpanded by remember { mutableStateOf(false) }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clickable { isExpanded = !isExpanded }
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Transcript",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Icon(
-                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (isExpanded) "Collapse" else "Expand"
-                        )
-                    }
-
-                    if (isExpanded) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = uiState.transcriptionText,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Save button
-        Button(
-            onClick = { viewModel.saveAndSubmit() },
-            enabled = uiState.editableTags.isNotEmpty(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .height(56.dp),
-            shape = RoundedCornerShape(28.dp)
-        ) {
-            Icon(Icons.Default.Save, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Save & Submit", style = MaterialTheme.typography.titleMedium)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-    }
-}
-
-@Composable
-fun TagOverlayCanvas(
-    imageUri: android.net.Uri,
-    editableTags: List<EditableTag>,
-    onTagDragged: (String, Float, Float) -> Unit,
-    onTagClick: (String) -> Unit
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Background image
-        AsyncImage(
-            model = imageUri,
-            contentDescription = "Captured image",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+        // Bottom sheet with detected tags (glassmorphism)
+        BottomTagSheet(
+            unplacedTags = uiState.unplacedTags,
+            onTagEdit = { viewModel.showEditTagDialog(it) },
+            onTagDelete = { viewModel.deleteTag(it) },
+            onAddTag = { viewModel.showAddTagDialog() }
         )
+    }
 
-        // Overlay tags
-        editableTags.forEach { editableTag ->
-            val tag = editableTag.tag
-            if (tag.positionX != null && tag.positionY != null) {
-                DraggableTagChip(
-                    tag = tag,
-                    isDragging = editableTag.isDragging,
-                    onDrag = { deltaX, deltaY ->
-                        onTagDragged(
-                            tag.id,
-                            (tag.positionX + deltaX).coerceIn(0f, 1000f),
-                            (tag.positionY + deltaY).coerceIn(0f, 1000f)
-                        )
-                    },
-                    onClick = { onTagClick(tag.id) }
-                )
+    // Dialogs
+    if (uiState.showAddTagDialog) {
+        ModernAddTagDialog(
+            onDismiss = { viewModel.hideAddTagDialog() },
+            onConfirm = { text ->
+                viewModel.addNewTag(text)
+                viewModel.hideAddTagDialog()
             }
+        )
+    }
+
+    if (uiState.showEditTagDialog && uiState.selectedTagId != null) {
+        val tag = uiState.editableTags.find { it.tag.id == uiState.selectedTagId }?.tag
+        if (tag != null) {
+            ModernEditTagDialog(
+                tag = tag,
+                onDismiss = { viewModel.hideEditTagDialog() },
+                onSave = { newText ->
+                    viewModel.updateTagText(tag.id, newText)
+                    viewModel.hideEditTagDialog()
+                },
+                onDelete = {
+                    viewModel.deleteTag(tag.id)
+                    viewModel.hideEditTagDialog()
+                }
+            )
         }
     }
 }
 
+// ========================================
+// Tag with Connector Line
+// ========================================
+
 @Composable
-fun DraggableTagChip(
+fun TagWithConnector(
     tag: ImageTag,
     isDragging: Boolean,
     onDrag: (Float, Float) -> Unit,
-    onClick: () -> Unit
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    var offsetX by remember { mutableStateOf(tag.positionX ?: 50f) }
-    var offsetY by remember { mutableStateOf(tag.positionY ?: 50f) }
+    var offsetX by remember { mutableStateOf(tag.positionX ?: 100f) }
+    var offsetY by remember { mutableStateOf(tag.positionY ?: 100f) }
+
+    // Update offsets when tag position changes
+    LaunchedEffect(tag.positionX, tag.positionY) {
+        tag.positionX?.let { offsetX = it }
+        tag.positionY?.let { offsetY = it }
+    }
 
     Box(
         modifier = Modifier
@@ -288,115 +258,416 @@ fun DraggableTagChip(
                     offsetY.roundToInt()
                 )
             }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        offsetX += dragAmount.x
-                        offsetY += dragAmount.y
-                        onDrag(dragAmount.x, dragAmount.y)
-                    }
-                )
-            }
     ) {
-        Surface(
-            onClick = onClick,
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shadowElevation = if (isDragging) 8.dp else 4.dp,
-            modifier = Modifier.border(
-                2.dp,
-                MaterialTheme.colorScheme.primary,
-                RoundedCornerShape(20.dp)
+        // Connector line and dot
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.offset(y = 44.dp)
+        ) {
+            // Line
+            Box(
+                modifier = Modifier
+                    .width(2.dp)
+                    .height(28.dp)
+                    .background(Color.White)
             )
+            // Dot
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .border(2.dp, Color(0xFF4F46E5), CircleShape)
+                    .background(Color.White, CircleShape)
+                    .shadow(4.dp, CircleShape)
+            )
+        }
+
+        // Tag chip with edit/delete buttons
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Color.White.copy(alpha = 0.92f),
+            shadowElevation = if (isDragging) 12.dp else 6.dp,
+            modifier = Modifier
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            offsetX += dragAmount.x
+                            offsetY += dragAmount.y
+                            onDrag(dragAmount.x, dragAmount.y)
+                        }
+                    )
+                }
+                .zIndex(if (isDragging) 10f else 1f)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
             ) {
+                // Pulsing indicator dot
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(Color(0xFF4F46E5), CircleShape)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Text(
                     text = tag.text,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1F2937)
+                    )
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "Edit",
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(Color(0xFFD1D5DB))
                 )
+
+                // Edit button
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Edit",
+                        modifier = Modifier.size(16.dp),
+                        tint = Color(0xFF6B7280)
+                    )
+                }
+
+                // Delete button
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(16.dp),
+                        tint = Color(0xFF9CA3AF)
+                    )
+                }
             }
         }
     }
 }
 
+// ========================================
+// Bottom Tag Sheet (Glassmorphism)
+// ========================================
+
 @Composable
-fun TagChip(
-    tag: ImageTag,
-    onClick: () -> Unit
+fun BottomTagSheet(
+    unplacedTags: List<ImageTag>,
+    onTagEdit: (String) -> Unit,
+    onTagDelete: (String) -> Unit,
+    onAddTag: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = Modifier.border(
-            1.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-            RoundedCornerShape(20.dp)
-        )
+    if (unplacedTags.isEmpty()) return
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 88.dp) // Above bottom nav
+            .zIndex(5f)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Glassmorphism card
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = Color.Black.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+            shadowElevation = 8.dp
         ) {
-            Text(
-                text = tag.text,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "DETECTED TAGS",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 1.2.sp,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                    )
+                    Text(
+                        text = "Drag to place",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Tags row
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(unplacedTags) { tag ->
+                        UnplacedTagChip(
+                            tag = tag,
+                            onEdit = { onTagEdit(tag.id) },
+                            onDelete = { onTagDelete(tag.id) }
+                        )
+                    }
+
+                    // Add new tag button
+                    item {
+                        OutlinedButton(
+                            onClick = onAddTag,
+                            shape = RoundedCornerShape(24.dp),
+                            border = BorderStroke(
+                                2.dp,
+                                Color.White.copy(alpha = 0.3f)
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color.White.copy(alpha = 0.7f)
+                            ),
+                            modifier = Modifier.height(40.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("New", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+// ========================================
+// Unplaced Tag Chip
+// ========================================
+
 @Composable
-fun TagListItem(
+fun UnplacedTagChip(
     tag: ImageTag,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White,
+        shadowElevation = 4.dp,
+        modifier = Modifier.height(40.dp)
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = tag.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+            Text(
+                text = tag.text,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF1F2937)
                 )
-                if (tag.confidence > 0f) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Confidence: ${(tag.confidence * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            )
+
+            // Divider
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .width(1.dp)
+                    .height(20.dp)
+                    .background(Color(0xFFE5E7EB))
+            )
+
+            // Edit button
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit",
+                    modifier = Modifier.size(14.dp),
+                    tint = Color(0xFF9CA3AF)
+                )
             }
 
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
-            }
-
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+            // Delete button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Delete",
+                    modifier = Modifier.size(14.dp),
+                    tint = Color(0xFF9CA3AF)
+                )
             }
         }
     }
+}
+
+// ========================================
+// Modern Dialogs
+// ========================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModernAddTagDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var tagText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "Add New Tag",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Enter object and location (e.g. 'Laptop → Table')",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = tagText,
+                    onValueChange = { tagText = it },
+                    label = { Text("Tag") },
+                    placeholder = { Text("Laptop → Table") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(tagText) },
+                enabled = tagText.isNotBlank(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Add Tag")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ModernEditTagDialog(
+    tag: ImageTag,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onDelete: () -> Unit
+) {
+    var tagText by remember { mutableStateOf(tag.text) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "Edit Tag",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = tagText,
+                    onValueChange = { tagText = it },
+                    label = { Text("Tag") },
+                    placeholder = { Text("Laptop → Table") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                if (tag.confidence > 0f) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Psychology,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "AI Confidence: ${(tag.confidence * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Delete")
+                }
+
+                Button(
+                    onClick = { onSave(tagText) },
+                    enabled = tagText.isNotBlank(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Save")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
 }
 
 // ========================================
@@ -596,95 +867,4 @@ fun getErrorTitle(errorType: ErrorType?): String {
         ErrorType.DB_ERROR -> "Save Failed"
         else -> "Error Occurred"
     }
-}
-
-// ========================================
-// DIALOGS
-// ========================================
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AddTagDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    var tagText by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add New Tag") },
-        text = {
-            Column {
-                Text("Enter object and location (e.g. 'keys → drawer')")
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = tagText,
-                    onValueChange = { tagText = it },
-                    label = { Text("Tag") },
-                    placeholder = { Text("keys → drawer") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onConfirm(tagText) },
-                enabled = tagText.isNotBlank()
-            ) {
-                Text("Add")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EditTagDialog(
-    tag: ImageTag,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
-    onDelete: () -> Unit
-) {
-    var tagText by remember { mutableStateOf(tag.text) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Tag") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = tagText,
-                    onValueChange = { tagText = it },
-                    label = { Text("Tag") },
-                    placeholder = { Text("keys → drawer") }
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSave(tagText) },
-                enabled = tagText.isNotBlank()
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )) {
-                    Text("Delete")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
-            }
-        }
-    )
 }

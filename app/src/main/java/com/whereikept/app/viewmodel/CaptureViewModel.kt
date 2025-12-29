@@ -29,7 +29,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     )
 
     val speechHelper = SpeechRecognitionHelper(application)
-    private val llmService = LlmService(application)
+    private val llmService = LlmService.getInstance(application)
 
     // UI State
     private val _captureUiState = MutableStateFlow(CaptureUiState())
@@ -39,10 +39,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
-        // Initialize services on background thread
+        // Initialize speech helper on background thread
+        // LLM will be initialized lazily when first needed
         viewModelScope.launch(Dispatchers.IO) {
             speechHelper.initialize()
-            llmService.initialize()
         }
 
         // Observe speech recognition state
@@ -527,7 +527,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     override fun onCleared() {
         super.onCleared()
         speechHelper.destroy()
-        llmService.release()
+        // Note: Don't release llmService here as it's a singleton shared across ViewModels
     }
 
     companion object {

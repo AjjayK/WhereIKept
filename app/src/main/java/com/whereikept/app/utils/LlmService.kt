@@ -13,20 +13,25 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Conversation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.fold
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.ByteArrayOutputStream
 
 /**
  * LLM-based extraction service using LiteRT-LM with Gemma 3n E2B.
  * Extracts structured object and location information from transcribed audio.
+ *
+ * Singleton pattern to prevent multiple Engine initializations which causes crashes.
  */
-class LlmService(private val context: Context) {
+class LlmService private constructor(private val context: Context) {
 
     // Data models for JSON extraction
     data class ExtractedItem(
@@ -45,9 +50,23 @@ class LlmService(private val context: Context) {
     private var engine: Engine? = null
     private var isInitialized = false
     private val gson = Gson()
+    private val initMutex = Mutex()
 
     companion object {
         private const val TAG = "LlmService"
+
+        @Volatile
+        private var INSTANCE: LlmService? = null
+
+        /**
+         * Get singleton instance of LlmService.
+         * Thread-safe double-checked locking.
+         */
+        fun getInstance(context: Context): LlmService {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: LlmService(context.applicationContext).also { INSTANCE = it }
+            }
+        }
         // Gemma 3n E2B - Optimized for mobile/edge devices (2025)
         private const val MODEL_DIR_NAME = "models"
         private val MODEL_NAMES = listOf(
@@ -71,72 +90,82 @@ class LlmService(private val context: Context) {
 
     /**
      * Initialize LiteRT-LM engine.
-     * Should be called on a background thread.
+     * Thread-safe with mutex to prevent concurrent initialization.
+     * If already initialized, returns true immediately.
      */
-    suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
-        Log.i(TAG, "===========================================")
-        Log.i(TAG, "Initializing LiteRT-LM Service")
-        Log.i(TAG, "===========================================")
+    suspend fun initialize(): Boolean = initMutex.withLock {
+        // If already initialized, return success immediately
+        if (isInitialized && engine != null) {
+            Log.d(TAG, "LiteRT-LM already initialized, skipping re-initialization")
+            return@withLock true
+        }
 
-        try {
-            val modelPath = findModelFile()
-            if (modelPath == null) {
-                val preferredPath = context.getExternalFilesDir(MODEL_DIR_NAME)?.absolutePath ?: "N/A"
-                Log.w(TAG, "===========================================")
-                Log.w(TAG, "Gemma 3n E2B model NOT FOUND on device storage!")
-                Log.w(TAG, "===========================================")
-                Log.w(TAG, "Please place the model file in app storage:")
-                Log.w(TAG, "  Preferred location: $preferredPath")
-                Log.w(TAG, "  Supported formats: .litertlm (recommended), .task, .bin, .tflite")
-                Log.w(TAG, "  Recommended: gemma-3n-e2b-it-int4.litertlm")
-                Log.w(TAG, "")
-                Log.w(TAG, "Download from:")
-                Log.w(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
-                Log.w(TAG, "  Kaggle: https://www.kaggle.com/models/google/gemma-3n")
-                Log.w(TAG, "")
-                Log.w(TAG, "After downloading:")
-                Log.w(TAG, "  1. Download the .litertlm or .task file")
-                Log.w(TAG, "  2. Use 'adb push' to copy to: $preferredPath")
-                Log.w(TAG, "     Example: adb push gemma-3n-e2b-it-int4.litertlm $preferredPath/")
-                Log.w(TAG, "  3. Relaunch the app")
-                Log.w(TAG, "===========================================")
-                return@withContext false
-            }
-
-            Log.i(TAG, "Found model: ${modelPath.name}")
-            Log.i(TAG, "Model path: ${modelPath.absolutePath}")
-            Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
-
-            // Configure LiteRT-LM Engine with default settings
-            Log.i(TAG, "Configuring LiteRT-LM Engine...")
-
-            val engineConfig = EngineConfig(
-                modelPath = modelPath.absolutePath,
-                backend = Backend.CPU,  // Use CPU to avoid OpenCL issues
-                maxNumTokens = DEFAULT_MAX_TOKEN,
-                cacheDir = context.cacheDir.absolutePath
-            )
-
-            Log.i(TAG, "Creating and initializing engine...")
-            val initStartTime = System.currentTimeMillis()
-
-            engine = Engine(engineConfig)
-            engine?.initialize()
-
-            val initDuration = System.currentTimeMillis() - initStartTime
-            isInitialized = true
-
-            Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
-            Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
+        withContext(Dispatchers.IO) {
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Initializing LiteRT-LM Service")
             Log.i(TAG, "===========================================")
 
-            return@withContext true
+            try {
+                val modelPath = findModelFile()
+                if (modelPath == null) {
+                    val preferredPath = context.getExternalFilesDir(MODEL_DIR_NAME)?.absolutePath ?: "N/A"
+                    Log.w(TAG, "===========================================")
+                    Log.w(TAG, "Gemma 3n E2B model NOT FOUND on device storage!")
+                    Log.w(TAG, "===========================================")
+                    Log.w(TAG, "Please place the model file in app storage:")
+                    Log.w(TAG, "  Preferred location: $preferredPath")
+                    Log.w(TAG, "  Supported formats: .litertlm (recommended), .task, .bin, .tflite")
+                    Log.w(TAG, "  Recommended: gemma-3n-e2b-it-int4.litertlm")
+                    Log.w(TAG, "")
+                    Log.w(TAG, "Download from:")
+                    Log.w(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
+                    Log.w(TAG, "  Kaggle: https://www.kaggle.com/models/google/gemma-3n")
+                    Log.w(TAG, "")
+                    Log.w(TAG, "After downloading:")
+                    Log.w(TAG, "  1. Download the .litertlm or .task file")
+                    Log.w(TAG, "  2. Use 'adb push' to copy to: $preferredPath")
+                    Log.w(TAG, "     Example: adb push gemma-3n-e2b-it-int4.litertlm $preferredPath/")
+                    Log.w(TAG, "  3. Relaunch the app")
+                    Log.w(TAG, "===========================================")
+                    return@withContext false
+                }
 
-        } catch (e: Exception) {
-            Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
-            Log.e(TAG, "===========================================")
-            isInitialized = false
-            return@withContext false
+                Log.i(TAG, "Found model: ${modelPath.name}")
+                Log.i(TAG, "Model path: ${modelPath.absolutePath}")
+                Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
+
+                // Configure LiteRT-LM Engine with default settings
+                Log.i(TAG, "Configuring LiteRT-LM Engine...")
+
+                val engineConfig = EngineConfig(
+                    modelPath = modelPath.absolutePath,
+                    backend = Backend.CPU,  // Use CPU for text processing
+                    visionBackend = Backend.GPU,  // MUST be GPU for Gemma 3N vision/multimodal
+                    maxNumTokens = DEFAULT_MAX_TOKEN,
+                    cacheDir = context.cacheDir.absolutePath
+                )
+
+                Log.i(TAG, "Creating and initializing engine...")
+                val initStartTime = System.currentTimeMillis()
+
+                engine = Engine(engineConfig)
+                engine?.initialize()
+
+                val initDuration = System.currentTimeMillis() - initStartTime
+                isInitialized = true
+
+                Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
+                Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
+                Log.i(TAG, "===========================================")
+
+                return@withContext true
+
+            } catch (e: Exception) {
+                Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
+                Log.e(TAG, "===========================================")
+                isInitialized = false
+                return@withContext false
+            }
         }
     }
 
@@ -466,7 +495,10 @@ JSON response:
                     val startTime = System.currentTimeMillis()
 
                     // Create multimodal message with image and text
-                    val userMessage = Message.of(prompt, bitmap)
+                    val contents = mutableListOf<Content>()
+                    contents.add(Content.ImageBytes(bitmap.toPngByteArray()))
+                    contents.add(Content.Text(prompt))
+                    val userMessage = Message.of(contents)
 
                     val response = conversation.sendMessageAsync(userMessage)
                         .catch { e ->
@@ -597,6 +629,15 @@ JSON response:
 
             ExtractionResponse(items)
         }
+    }
+
+    /**
+     * Helper function to convert Bitmap to PNG ByteArray for multimodal input
+     */
+    private fun Bitmap.toPngByteArray(): ByteArray {
+        val stream = ByteArrayOutputStream()
+        this.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        return stream.toByteArray()
     }
 
     /**

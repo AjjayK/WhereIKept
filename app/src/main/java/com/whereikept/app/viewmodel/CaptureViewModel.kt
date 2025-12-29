@@ -382,14 +382,18 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     // Save & Submit
     // ========================================
 
-    fun saveAndSubmit() {
+    /**
+     * Save and submit the reviewed tags to database.
+     * If screenshot is provided, it will optimize the JSON using Gemma with visual context.
+     */
+    fun saveAndSubmit(screenshotBitmap: Bitmap? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 _captureUiState.update {
                     it.copy(
                         workflowState = CaptureWorkflowState.SUBMITTING,
                         isProcessing = true,
-                        processingMessage = "Saving items..."
+                        processingMessage = if (screenshotBitmap != null) "Optimizing with AI..." else "Saving items..."
                     )
                 }
 
@@ -399,8 +403,56 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
 
                 Log.d(TAG, "Saving ${tags.size} items to database")
 
-                // Convert tags to database items
-                val items = tags.map { tag ->
+                // Step 1: If screenshot is provided, optimize the JSON with Gemma
+                val finalTags = if (screenshotBitmap != null) {
+                    Log.d(TAG, "Screenshot provided, optimizing JSON with Gemma")
+                    _captureUiState.update {
+                        it.copy(processingMessage = "Analyzing screenshot with AI...")
+                    }
+
+                    // Build initial JSON from current tags
+                    val initialJson = LlmService.ExtractionResponse(
+                        items = tags.map { tag ->
+                            LlmService.ExtractedItem(
+                                objectName = tag.objectName.ifBlank { tag.text },
+                                location = tag.location,
+                                confidence = tag.confidence,
+                                evidence = tag.evidence
+                            )
+                        }
+                    )
+
+                    // Call Gemma to optimize with screenshot
+                    val optimizedJson = llmService.optimizeJsonWithScreenshot(
+                        initialJson = initialJson,
+                        screenshotBitmap = screenshotBitmap,
+                        transcript = transcript
+                    )
+
+                    Log.d(TAG, "JSON optimized: ${optimizedJson.items.size} items")
+
+                    // Convert optimized JSON back to ImageTags
+                    optimizedJson.items.map { item ->
+                        ImageTag(
+                            text = "${item.objectName} → ${item.location}",
+                            objectName = item.objectName,
+                            location = item.location,
+                            confidence = item.confidence,
+                            evidence = item.evidence
+                        )
+                    }
+                } else {
+                    // No screenshot, use tags as-is
+                    Log.d(TAG, "No screenshot provided, using tags as-is")
+                    tags
+                }
+
+                _captureUiState.update {
+                    it.copy(processingMessage = "Saving to database...")
+                }
+
+                // Step 2: Convert final tags to database items
+                val items = finalTags.map { tag ->
                     ItemEntity(
                         objectName = tag.objectName.ifBlank { tag.text },
                         location = tag.location,
@@ -412,7 +464,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
 
-                // Save to database
+                // Step 3: Save to database
                 repository.insertItems(items)
 
                 // Save recording

@@ -1,5 +1,7 @@
 package com.whereikept.app.ui
 
+import android.graphics.Bitmap
+import android.view.View
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -28,6 +30,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -36,6 +40,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.whereikept.app.viewmodel.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.drawBehind
@@ -51,6 +58,19 @@ fun ReviewEditingStateScreen(
     uiState: CaptureUiState,
     viewModel: CaptureViewModel
 ) {
+    val view = LocalView.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // Callback to capture screenshot and submit
+    val captureAndSubmit: () -> Unit = {
+        coroutineScope.launch {
+            val bitmap = withContext(Dispatchers.Main) {
+                captureViewAsBitmap(view)
+            }
+            viewModel.saveAndSubmit(bitmap)
+        }
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -158,7 +178,7 @@ fun ReviewEditingStateScreen(
 
                 // Done button
                 Button(
-                    onClick = { viewModel.saveAndSubmit() },
+                    onClick = { captureAndSubmit() },
                     enabled = uiState.editableTags.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF4F46E5), // Indigo primary
@@ -947,5 +967,26 @@ fun getErrorTitle(errorType: ErrorType?): String {
         ErrorType.CAMERA_FAILED -> "Camera Error"
         ErrorType.DB_ERROR -> "Save Failed"
         else -> "Error Occurred"
+    }
+}
+
+/**
+ * Capture the current view as a Bitmap for screenshot purposes.
+ * This is used to capture the review screen with positioned tags before submitting to Gemma.
+ */
+private fun captureViewAsBitmap(view: View): Bitmap? {
+    return try {
+        // Get the root view's drawing cache
+        val bitmap = Bitmap.createBitmap(
+            view.width,
+            view.height,
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = android.graphics.Canvas(bitmap)
+        view.draw(canvas)
+        bitmap
+    } catch (e: Exception) {
+        android.util.Log.e("CaptureScreenPart2", "Failed to capture view as bitmap: ${e.message}", e)
+        null
     }
 }

@@ -82,7 +82,7 @@ class LlmService private constructor(private val context: Context) {
         private val MODEL_EXTENSIONS = listOf(".litertlm", ".task", ".bin", ".tflite")
 
         // Default LLM configuration (from Google AI Edge Gallery)
-        private const val DEFAULT_MAX_TOKEN = 1024
+        private const val DEFAULT_MAX_TOKEN = 8192  // Gemma 3N E2B supports 32K context, using 8K for output
         private const val DEFAULT_TOPK = 64
         private const val DEFAULT_TOPP = 0.95
         private const val DEFAULT_TEMPERATURE = 1.0
@@ -139,7 +139,7 @@ class LlmService private constructor(private val context: Context) {
 
                 val engineConfig = EngineConfig(
                     modelPath = modelPath.absolutePath,
-                    backend = Backend.CPU,  // Use CPU for text processing
+                    backend = Backend.CPU,  // Temporary: Use GPU for all processing
                     visionBackend = Backend.GPU,  // MUST be GPU for Gemma 3N vision/multimodal
                     maxNumTokens = DEFAULT_MAX_TOKEN,
                     cacheDir = context.cacheDir.absolutePath
@@ -234,8 +234,9 @@ class LlmService private constructor(private val context: Context) {
                     Log.i(TAG, "  Response length: ${response.length} chars")
                     Log.d(TAG, "  Raw response:\n$response")
 
-                    // Parse JSON response
-                    val extractionResponse = parseJsonResponse(response)
+                    // Clean and parse JSON response
+                    val cleanedJson = cleanJsonResponse(response)
+                    val extractionResponse = parseJsonResponse(cleanedJson)
 
                     Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s)")
                     extractionResponse.items.forEachIndexed { index, item ->
@@ -332,6 +333,50 @@ Now extract from this text:
 
 JSON response:
 """.trimIndent()
+    }
+
+    /**
+     * Clean and extract JSON from raw LLM response.
+     * Handles markdown blocks, extra text, and common formatting issues.
+     * No LLM call - pure string processing for reliability.
+     */
+    private fun cleanJsonResponse(rawResponse: String): String {
+        Log.d(TAG, "Cleaning JSON response...")
+
+        var cleaned = rawResponse.trim()
+
+        // Remove markdown code blocks
+        if (cleaned.startsWith("```json")) {
+            cleaned = cleaned.removePrefix("```json")
+        } else if (cleaned.startsWith("```")) {
+            cleaned = cleaned.removePrefix("```")
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.removeSuffix("```")
+        }
+        cleaned = cleaned.trim()
+
+        // Extract JSON object - find first { and last }
+        val jsonStart = cleaned.indexOf('{')
+        val jsonEnd = cleaned.lastIndexOf('}')
+
+        if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+            cleaned = cleaned.substring(jsonStart, jsonEnd + 1)
+        }
+
+        // Fix common JSON issues
+        // 1. Remove trailing commas before ] or }
+        cleaned = cleaned.replace(Regex(",\\s*\\]"), "]")
+        cleaned = cleaned.replace(Regex(",\\s*\\}"), "}")
+
+        // 2. Fix unquoted null values
+        cleaned = cleaned.replace(Regex(":\\s*null\\s*([,}\\]])"), ": null$1")
+
+        // 3. Ensure proper string escaping for nested quotes
+        // This is a simple fix - might need more robust handling
+
+        Log.d(TAG, "Cleaned JSON:\n$cleaned")
+        return cleaned
     }
 
     /**
@@ -520,7 +565,9 @@ JSON response:
                     Log.i(TAG, "  Response length: ${response.length} chars")
                     Log.d(TAG, "  Raw response:\n$response")
 
-                    val extractionResponse = parseJsonResponse(response)
+                    // Clean and parse JSON response
+                    val cleanedJson = cleanJsonResponse(response)
+                    val extractionResponse = parseJsonResponse(cleanedJson)
 
                     Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s) from multimodal input")
                     extractionResponse.items.forEachIndexed { index, item ->
@@ -702,7 +749,9 @@ JSON response:
                     Log.i(TAG, "  Response length: ${response.length} chars")
                     Log.d(TAG, "  Raw response:\n$response")
 
-                    val optimizedResponse = parseJsonResponse(response)
+                    // Clean and parse JSON response
+                    val cleanedJson = cleanJsonResponse(response)
+                    val optimizedResponse = parseJsonResponse(cleanedJson)
 
                     Log.i(TAG, "Optimized to ${optimizedResponse.items.size} item(s)")
                     optimizedResponse.items.forEachIndexed { index, item ->

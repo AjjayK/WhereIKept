@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
-        viewModel.speechHelper.destroy()
+        // Note: SpeechHelper cleanup is now handled by CaptureViewModel.onCleared()
     }
 }
 

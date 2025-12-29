@@ -138,123 +138,36 @@ fun MainScreen(viewModel: MainViewModel) {
     }
 }
 
+/**
+ * @deprecated This screen is no longer used. Recording functionality has been moved to CaptureScreen.
+ * The implementation has been removed to avoid compilation errors with refactored MainViewModel.
+ * See CaptureScreen for the new enhanced recording workflow.
+ */
+@Deprecated(
+    message = "Use CaptureScreen instead",
+    replaceWith = ReplaceWith("CaptureScreen(viewModel)"),
+    level = DeprecationLevel.ERROR
+)
 @Composable
 fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    // This screen has been replaced by CaptureScreen
+    // Implementation removed as MainViewModel no longer supports recording
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Instructions
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Tap the microphone and say where you're putting things.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Example: \"I'm putting my keys in the kitchen drawer\"",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Recording visualization
-        AnimatedRecordingIndicator(
-            isRecording = uiState.isRecording,
-            isProcessing = uiState.isProcessing
+        Text(
+            "This screen is deprecated. Use the Capture tab instead.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center
         )
-        
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Recording duration and transcribed text
-        AnimatedVisibility(
-            visible = uiState.isRecording || uiState.transcribedText.isNotBlank(),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    if (uiState.isRecording) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = formatDuration(uiState.recordingDuration),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.GraphicEq,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                LinearProgressIndicator(
-                                    progress = { uiState.audioLevel.coerceIn(0f, 1f) },
-                                    modifier = Modifier.width(100.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    } else if (uiState.transcribedText.isNotBlank()) {
-                        Text(
-                            text = uiState.transcribedText,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Record button
-        RecordButton(
-            isRecording = uiState.isRecording,
-            isProcessing = uiState.isProcessing,
-            onStartRecording = { viewModel.startRecording() },
-            onStopRecording = { viewModel.stopRecording() }
-        )
-        
-        Spacer(modifier = Modifier.height(48.dp))
     }
 }
 
+/**
+ * @deprecated No longer used. Kept for reference only.
+ */
+@Deprecated("No longer used", level = DeprecationLevel.WARNING)
 @Composable
 fun AnimatedRecordingIndicator(isRecording: Boolean, isProcessing: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -312,6 +225,10 @@ fun AnimatedRecordingIndicator(isRecording: Boolean, isProcessing: Boolean) {
     }
 }
 
+/**
+ * @deprecated No longer used. Kept for reference only.
+ */
+@Deprecated("No longer used", level = DeprecationLevel.WARNING)
 @Composable
 fun RecordButton(
     isRecording: Boolean,

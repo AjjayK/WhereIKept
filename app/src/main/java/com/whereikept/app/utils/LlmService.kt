@@ -1,6 +1,9 @@
 package com.whereikept.app.utils
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
@@ -17,6 +20,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.fold
 import java.io.File
+import java.io.ByteArrayOutputStream
 
 /**
  * LLM-based extraction service using LiteRT-LM with Gemma 3n E2B.
@@ -409,6 +413,190 @@ JSON response:
                 MODEL_EXTENSIONS.any { file.name.endsWith(it, ignoreCase = true) } &&
                 !file.name.startsWith("ggml-", ignoreCase = true) // Exclude whisper models
             }
+    }
+
+    /**
+     * Extract items from transcript + image (multimodal input).
+     * Uses Gemma 3N's vision capabilities to analyze both text and image.
+     */
+    suspend fun extractItemsWithImage(
+        transcript: String,
+        imageUri: Uri
+    ): ExtractionResponse {
+        return withContext(Dispatchers.IO) {
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Extracting items from transcript + image (multimodal)")
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Transcription: \"$transcript\"")
+            Log.i(TAG, "Image URI: $imageUri")
+
+            if (!isInitialized || engine == null) {
+                Log.w(TAG, "LLM not initialized, attempting initialization...")
+                val success = initialize()
+                if (!success) {
+                    Log.e(TAG, "Failed to initialize LLM, returning empty response")
+                    return@withContext ExtractionResponse(emptyList())
+                }
+            }
+
+            try {
+                // Load image bitmap
+                val bitmap = loadBitmapFromUri(imageUri)
+                if (bitmap == null) {
+                    Log.e(TAG, "Failed to load image, falling back to text-only extraction")
+                    return@withContext extractItemsFromTranscription(transcript)
+                }
+
+                Log.i(TAG, "Image loaded: ${bitmap.width}x${bitmap.height}")
+
+                val prompt = buildMultimodalExtractionPrompt(transcript)
+                Log.i(TAG, "Generated multimodal prompt (${prompt.length} chars)")
+
+                val conversationConfig = ConversationConfig(
+                    systemMessage = Message.of("You are a JSON extraction assistant. Analyze images and text to extract object and location information. Respond ONLY with valid JSON."),
+                    samplerConfig = SamplerConfig(
+                        topK = DEFAULT_TOPK,
+                        topP = DEFAULT_TOPP,
+                        temperature = DEFAULT_TEMPERATURE
+                    )
+                )
+
+                engine!!.createConversation(conversationConfig).use { conversation ->
+                    Log.i(TAG, "Calling LiteRT-LM with image + text...")
+                    val startTime = System.currentTimeMillis()
+
+                    // Create multimodal message with image and text
+                    val userMessage = Message.of(prompt, bitmap)
+
+                    val response = conversation.sendMessageAsync(userMessage)
+                        .catch { e ->
+                            Log.e(TAG, "Error during multimodal inference: ${e.message}", e)
+                            throw e
+                        }
+                        .fold(StringBuilder()) { acc, message ->
+                            acc.append(message.toString())
+                            acc
+                        }
+                        .toString()
+
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - startTime
+
+                    Log.i(TAG, "-------------------------------------------")
+                    Log.i(TAG, "Multimodal LLM Response received:")
+                    Log.i(TAG, "  Duration: $duration ms")
+                    Log.i(TAG, "  Response length: ${response.length} chars")
+                    Log.d(TAG, "  Raw response:\n$response")
+
+                    val extractionResponse = parseJsonResponse(response)
+
+                    Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s) from multimodal input")
+                    extractionResponse.items.forEachIndexed { index, item ->
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                    }
+                    Log.i(TAG, "===========================================")
+
+                    return@withContext extractionResponse
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "ERROR during multimodal extraction: ${e.message}", e)
+                Log.e(TAG, "Falling back to text-only extraction")
+                // Fallback to text-only extraction if image processing fails
+                return@withContext extractItemsFromTranscription(transcript)
+            }
+        }
+    }
+
+    /**
+     * Load bitmap from URI
+     */
+    private fun loadBitmapFromUri(uri: Uri): Bitmap? {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                BitmapFactory.decodeStream(inputStream)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load bitmap from URI: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Build prompt for multimodal extraction
+     */
+    private fun buildMultimodalExtractionPrompt(transcript: String): String {
+        return """
+Analyze the provided image and transcript to extract object and location information.
+
+IMPORTANT: Respond ONLY with valid JSON. Do not include any explanatory text.
+
+Transcript: "$transcript"
+
+Instructions:
+1. Look at the image to identify objects and their spatial locations
+2. Combine visual information from the image with context from the transcript
+3. Extract object-location pairs with high confidence
+
+Output format (strict JSON):
+{
+  "items": [
+    {
+      "object": "string",
+      "location": "string",
+      "nearby": "string or null",
+      "time_hint": "string or null",
+      "confidence": 0.0-1.0,
+      "evidence": "string"
+    }
+  ]
+}
+
+Extraction Rules:
+1. "object": The item being stored (e.g., "keys", "wallet", "phone")
+2. "location": Where the item is visible or mentioned (e.g., "drawer", "table", "shelf")
+3. "nearby": Other visible objects near the item
+4. "time_hint": Temporal information from transcript (e.g., "just now", "today")
+5. "confidence": Higher (0.8-1.0) if object is visible in image, lower (0.4-0.7) if only in transcript
+6. "evidence": What you saw/read that supports this extraction
+
+JSON response:
+""".trimIndent()
+    }
+
+    /**
+     * Generate structured tags from final review (for database commands)
+     * This is called after user has reviewed and positioned tags
+     */
+    suspend fun generateTagsForDatabase(
+        transcript: String,
+        tags: List<String>
+    ): ExtractionResponse {
+        return withContext(Dispatchers.IO) {
+            Log.i(TAG, "Generating structured data for database from tags")
+
+            // Convert user-edited tags back to structured format
+            val items = tags.map { tagText ->
+                val parts = tagText.split("→").map { it.trim() }
+                if (parts.size >= 2) {
+                    ExtractedItem(
+                        objectName = parts[0],
+                        location = parts[1],
+                        confidence = 1.0f, // User-confirmed tags have full confidence
+                        evidence = transcript
+                    )
+                } else {
+                    ExtractedItem(
+                        objectName = tagText,
+                        location = "unknown",
+                        confidence = 0.5f,
+                        evidence = transcript
+                    )
+                }
+            }
+
+            ExtractionResponse(items)
+        }
     }
 
     /**

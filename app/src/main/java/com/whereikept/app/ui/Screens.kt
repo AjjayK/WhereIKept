@@ -38,53 +38,36 @@ private fun formatDuration(millis: Long): String {
 fun MainScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
-    
+
     var selectedTab by remember { mutableIntStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
-    
+
     val snackbarHostState = remember { SnackbarHostState() }
-    
+
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearError()
         }
     }
-    
+
     LaunchedEffect(uiState.successMessage) {
         uiState.successMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearSuccessMessage()
         }
     }
-    
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Where I Kept")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
         bottomBar = {
+            // Hide bottom nav when in capture workflow (except IDLE state)
             NavigationBar {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
-                    label = { Text("Record") }
+                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Capture") },
+                    label = { Text("Capture") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
@@ -95,7 +78,7 @@ fun MainScreen(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { 
+                    icon = {
                         BadgedBox(
                             badge = {
                                 if (uiState.itemCount > 0) {
@@ -123,13 +106,26 @@ fun MainScreen(viewModel: MainViewModel) {
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (selectedTab) {
-                0 -> RecordScreen(viewModel, uiState)
+                0 -> {
+                    // Use the new enhanced CaptureScreen
+                    // Import the CaptureViewModel instead
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val captureViewModel = androidx.lifecycle.viewmodel.compose.viewModel<com.whereikept.app.viewmodel.CaptureViewModel>(
+                        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                @Suppress("UNCHECKED_CAST")
+                                return com.whereikept.app.viewmodel.CaptureViewModel(context.applicationContext as android.app.Application) as T
+                            }
+                        }
+                    )
+                    CaptureScreen(viewModel = captureViewModel)
+                }
                 1 -> SearchScreen(viewModel, uiState)
                 2 -> ItemsListScreen(allItems, onDeleteItem = { viewModel.deleteItem(it) })
             }
         }
     }
-    
+
     // Add Item Dialog
     if (showAddDialog) {
         AddItemDialog(

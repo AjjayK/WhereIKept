@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -49,18 +51,22 @@ fun ReviewEditingStateScreen(
     uiState: CaptureUiState,
     viewModel: CaptureViewModel
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        val screenWidth = constraints.maxWidth.toFloat()
+        val screenHeight = constraints.maxHeight.toFloat()
         // Fullscreen Image with overlays
         if (uiState.capturedImageUri != null) {
             // Background Image (full screen)
             AsyncImage(
                 model = uiState.capturedImageUri,
                 contentDescription = "Captured image",
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0f),
                 contentScale = ContentScale.Crop
             )
 
@@ -69,6 +75,7 @@ fun ReviewEditingStateScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp)
+                    .zIndex(1f)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
@@ -78,25 +85,6 @@ fun ReviewEditingStateScreen(
                         )
                     )
             )
-
-            // Placed tags with connector lines
-            uiState.editableTags
-                .filter { it.tag.positionX != null && it.tag.positionY != null }
-                .forEach { editableTag ->
-                    TagWithConnector(
-                        tag = editableTag.tag,
-                        isDragging = editableTag.isDragging,
-                        onDrag = { deltaX, deltaY ->
-                            viewModel.updateTagPosition(
-                                editableTag.tag.id,
-                                (editableTag.tag.positionX!! + deltaX).coerceIn(0f, 1000f),
-                                (editableTag.tag.positionY!! + deltaY).coerceIn(0f, 1000f)
-                            )
-                        },
-                        onEdit = { viewModel.showEditTagDialog(editableTag.tag.id) },
-                        onDelete = { viewModel.deleteTag(editableTag.tag.id) }
-                    )
-                }
         } else {
             // No image placeholder
             Box(
@@ -190,12 +178,39 @@ fun ReviewEditingStateScreen(
             }
         }
 
+        // Placed tags with connector lines - MUST BE AFTER IMAGE
+        uiState.editableTags
+            .filter { it.tag.positionX != null && it.tag.positionY != null }
+            .forEach { editableTag ->
+                TagWithConnector(
+                    tag = editableTag.tag,
+                    isDragging = editableTag.isDragging,
+                    onDragEnd = { finalX, finalY ->
+                        viewModel.updateTagPosition(
+                            editableTag.tag.id,
+                            finalX.coerceIn(0f, screenWidth),
+                            finalY.coerceIn(0f, screenHeight)
+                        )
+                    },
+                    onEdit = { viewModel.showEditTagDialog(editableTag.tag.id) },
+                    onDelete = { viewModel.deleteTag(editableTag.tag.id) }
+                )
+            }
+
         // Bottom sheet with detected tags (glassmorphism)
         BottomTagSheet(
             unplacedTags = uiState.unplacedTags,
             onTagEdit = { viewModel.showEditTagDialog(it) },
             onTagDelete = { viewModel.deleteTag(it) },
-            onAddTag = { viewModel.showAddTagDialog() }
+            onAddTag = { viewModel.showAddTagDialog() },
+            onTagPlaced = { tagId, x, y ->
+                // Clamp positions to screen bounds
+                viewModel.updateTagPosition(
+                    tagId,
+                    x.coerceIn(0f, screenWidth - 200f), // Leave room for tag width
+                    y.coerceIn(100f, screenHeight - 300f) // Keep away from top/bottom bars
+                )
+            }
         )
     }
 
@@ -237,27 +252,32 @@ fun ReviewEditingStateScreen(
 fun TagWithConnector(
     tag: ImageTag,
     isDragging: Boolean,
-    onDrag: (Float, Float) -> Unit,
+    onDragEnd: (Float, Float) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var offsetX by remember { mutableStateOf(tag.positionX ?: 100f) }
-    var offsetY by remember { mutableStateOf(tag.positionY ?: 100f) }
+    // Use local state for smooth dragging
+    var localOffsetX by remember(tag.id, tag.positionX) { mutableStateOf(tag.positionX ?: 100f) }
+    var localOffsetY by remember(tag.id, tag.positionY) { mutableStateOf(tag.positionY ?: 100f) }
+    var isCurrentlyDragging by remember { mutableStateOf(false) }
 
-    // Update offsets when tag position changes
+    // Sync with ViewModel when tag position changes from external source
     LaunchedEffect(tag.positionX, tag.positionY) {
-        tag.positionX?.let { offsetX = it }
-        tag.positionY?.let { offsetY = it }
+        if (!isCurrentlyDragging) {
+            tag.positionX?.let { localOffsetX = it }
+            tag.positionY?.let { localOffsetY = it }
+        }
     }
 
     Box(
         modifier = Modifier
             .offset {
                 IntOffset(
-                    offsetX.roundToInt(),
-                    offsetY.roundToInt()
+                    localOffsetX.roundToInt(),
+                    localOffsetY.roundToInt()
                 )
             }
+            .zIndex(if (isCurrentlyDragging) 1000f else 50f) // Always above image
     ) {
         // Connector line and dot
         Column(
@@ -285,19 +305,26 @@ fun TagWithConnector(
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = Color.White.copy(alpha = 0.92f),
-            shadowElevation = if (isDragging) 12.dp else 6.dp,
+            shadowElevation = if (isCurrentlyDragging) 12.dp else 6.dp,
             modifier = Modifier
-                .pointerInput(Unit) {
+                .pointerInput(tag.id) {
                     detectDragGestures(
+                        onDragStart = {
+                            isCurrentlyDragging = true
+                        },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            offsetX += dragAmount.x
-                            offsetY += dragAmount.y
-                            onDrag(dragAmount.x, dragAmount.y)
+                            // Update local state immediately for smooth dragging
+                            localOffsetX += dragAmount.x
+                            localOffsetY += dragAmount.y
+                        },
+                        onDragEnd = {
+                            isCurrentlyDragging = false
+                            // Update ViewModel with final position
+                            onDragEnd(localOffsetX, localOffsetY)
                         }
                     )
                 }
-                .zIndex(if (isDragging) 10f else 1f)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -368,7 +395,8 @@ fun BottomTagSheet(
     unplacedTags: List<ImageTag>,
     onTagEdit: (String) -> Unit,
     onTagDelete: (String) -> Unit,
-    onAddTag: () -> Unit
+    onAddTag: () -> Unit,
+    onTagPlaced: (String, Float, Float) -> Unit = { _, _, _ -> }
 ) {
     if (unplacedTags.isEmpty()) return
 
@@ -425,7 +453,8 @@ fun BottomTagSheet(
                         UnplacedTagChip(
                             tag = tag,
                             onEdit = { onTagEdit(tag.id) },
-                            onDelete = { onTagDelete(tag.id) }
+                            onDelete = { onTagDelete(tag.id) },
+                            onPlaced = onTagPlaced
                         )
                     }
 
@@ -467,59 +496,111 @@ fun BottomTagSheet(
 fun UnplacedTagChip(
     tag: ImageTag,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onPlaced: (String, Float, Float) -> Unit = { _, _, _ -> }
 ) {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = Color.White,
-        shadowElevation = 4.dp,
-        modifier = Modifier.height(40.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-        ) {
-            Text(
-                text = tag.text,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF1F2937)
-                )
-            )
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var initialAbsoluteX by remember { mutableStateOf(0f) }
+    var initialAbsoluteY by remember { mutableStateOf(0f) }
 
-            // Divider
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .width(1.dp)
-                    .height(20.dp)
-                    .background(Color(0xFFE5E7EB))
-            )
-
-            // Edit button
-            IconButton(
-                onClick = onEdit,
-                modifier = Modifier.size(28.dp)
-            ) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = "Edit",
-                    modifier = Modifier.size(14.dp),
-                    tint = Color(0xFF9CA3AF)
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    offsetX.roundToInt(),
+                    offsetY.roundToInt()
                 )
             }
-
-            // Delete button
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(28.dp)
+            .onGloballyPositioned { coordinates ->
+                // Capture initial absolute position when chip is laid out
+                if (!isDragging && offsetX == 0f && offsetY == 0f) {
+                    val position = coordinates.positionInRoot()
+                    initialAbsoluteX = position.x
+                    initialAbsoluteY = position.y
+                }
+            }
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Color.White,
+            shadowElevation = if (isDragging) 12.dp else 4.dp,
+            modifier = Modifier
+                .height(40.dp)
+                .pointerInput(tag.id) {
+                    detectDragGestures(
+                        onDragStart = {
+                            isDragging = true
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            offsetX += dragAmount.x
+                            offsetY += dragAmount.y
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            // If dragged upward significantly (offsetY negative means up)
+                            if (offsetY < -150f) {
+                                // Calculate final absolute position
+                                val finalX = initialAbsoluteX + offsetX
+                                val finalY = initialAbsoluteY + offsetY
+                                onPlaced(tag.id, finalX, finalY)
+                            }
+                            // Reset position
+                            offsetX = 0f
+                            offsetY = 0f
+                        }
+                    )
+                }
+                .zIndex(if (isDragging) 100f else 1f)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
             ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Delete",
-                    modifier = Modifier.size(14.dp),
-                    tint = Color(0xFF9CA3AF)
+                Text(
+                    text = tag.text,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1F2937)
+                    )
                 )
+
+                // Divider
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(Color(0xFFE5E7EB))
+                )
+
+                // Edit button
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Edit",
+                        modifier = Modifier.size(14.dp),
+                        tint = Color(0xFF9CA3AF)
+                    )
+                }
+
+                // Delete button
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(14.dp),
+                        tint = Color(0xFF9CA3AF)
+                    )
+                }
             }
         }
     }

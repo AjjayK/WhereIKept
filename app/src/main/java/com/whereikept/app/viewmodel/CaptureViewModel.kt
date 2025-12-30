@@ -14,6 +14,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
 /**
  * ViewModel for the enhanced capture workflow
@@ -215,8 +217,8 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                         text = "${item.objectName} → ${item.location}",
                         objectName = item.objectName,
                         location = item.location,
-                        confidence = item.confidence,
-                        evidence = item.evidence
+                        objectAttribute = item.objectAttribute,
+                        locationParent = item.locationParent
                     )
                 }
 
@@ -340,7 +342,8 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             text = text,
             objectName = objectName,
             location = location,
-            confidence = 1.0f // User-added tags have full confidence
+            objectAttribute = null,  // User can set in review screen
+            locationParent = null    // User will select in review screen
         )
 
         _captureUiState.update { state ->
@@ -416,8 +419,8 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                             LlmService.ExtractedItem(
                                 objectName = tag.objectName.ifBlank { tag.text },
                                 location = tag.location,
-                                confidence = tag.confidence,
-                                evidence = tag.evidence
+                                objectAttribute = tag.objectAttribute,
+                                locationParent = tag.locationParent
                             )
                         }
                     )
@@ -437,8 +440,8 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                             text = "${item.objectName} → ${item.location}",
                             objectName = item.objectName,
                             location = item.location,
-                            confidence = item.confidence,
-                            evidence = item.evidence
+                            objectAttribute = item.objectAttribute,
+                            locationParent = item.locationParent
                         )
                     }
                 } else {
@@ -451,20 +454,34 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                     it.copy(processingMessage = "Saving to database...")
                 }
 
-                // Step 2: Convert final tags to database items
+                // Step 2: Save the tagged screenshot if provided
+                val taggedImagePath = if (screenshotBitmap != null) {
+                    val fileName = "tagged_${System.currentTimeMillis()}.jpg"
+                    saveBitmapToFile(screenshotBitmap, fileName)
+                } else {
+                    null
+                }
+
+                if (screenshotBitmap != null && taggedImagePath == null) {
+                    Log.w(TAG, "Failed to save tagged screenshot")
+                }
+
+                // Step 3: Convert final tags to database items
                 val items = finalTags.map { tag ->
                     ItemEntity(
                         objectName = tag.objectName.ifBlank { tag.text },
                         location = tag.location,
                         description = "From capture: \"$transcript\"",
-                        confidence = tag.confidence,
-                        evidence = tag.evidence,
+                        objectAttribute = tag.objectAttribute,
+                        locationParent = tag.locationParent,
                         imagePath = imageUri?.toString(),
+                        taggedImagePath = taggedImagePath,  // Store the screenshot with overlaid tags
+                        timestamp = System.currentTimeMillis(),
                         sourceType = "capture"
                     )
                 }
 
-                // Step 3: Save to database
+                // Step 4: Save to database
                 repository.insertItems(items)
 
                 // Save recording
@@ -580,6 +597,33 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         super.onCleared()
         speechHelper.destroy()
         // Note: Don't release llmService here as it's a singleton shared across ViewModels
+    }
+
+    // ========================================
+    // Utility Functions
+    // ========================================
+
+    /**
+     * Save bitmap to app's private storage.
+     * Returns the file path or null if failed.
+     */
+    private fun saveBitmapToFile(bitmap: Bitmap, fileName: String): String? {
+        return try {
+            val directory = File(getApplication<Application>().filesDir, "tagged_images")
+            if (!directory.exists()) {
+                directory.mkdirs()
+            }
+
+            val file = File(directory, fileName)
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+
+            file.absolutePath
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to save bitmap: ${e.message}", e)
+            null
+        }
     }
 
     companion object {

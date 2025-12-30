@@ -715,19 +715,40 @@ fun ModernEditTagDialog(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                if (tag.confidence > 0f) {
+                // Show object attributes if available
+                if (!tag.objectAttribute.isNullOrBlank()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            Icons.Default.Psychology,
+                            Icons.Default.Info,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "AI Confidence: ${(tag.confidence * 100).toInt()}%",
+                            text = "Attributes: ${tag.objectAttribute}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Show location parent if available
+                if (!tag.locationParent.isNullOrBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Home,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                        Text(
+                            text = "Location: ${tag.locationParent}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

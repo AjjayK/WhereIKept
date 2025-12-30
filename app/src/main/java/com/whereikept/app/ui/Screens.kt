@@ -3,11 +3,16 @@ package com.whereikept.app.ui
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -41,6 +46,8 @@ fun MainScreen(viewModel: MainViewModel) {
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var selectedItem by remember { mutableStateOf<ItemEntity?>(null) }
+    var showItemDetailDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -120,8 +127,22 @@ fun MainScreen(viewModel: MainViewModel) {
                     )
                     CaptureScreen(viewModel = captureViewModel)
                 }
-                1 -> SearchScreen(viewModel, uiState)
-                2 -> ItemsListScreen(allItems, onDeleteItem = { viewModel.deleteItem(it) })
+                1 -> SearchScreen(
+                    viewModel = viewModel,
+                    uiState = uiState,
+                    onItemClick = { item ->
+                        selectedItem = item
+                        showItemDetailDialog = true
+                    }
+                )
+                2 -> ItemsListScreen(
+                    items = allItems,
+                    onDeleteItem = { viewModel.deleteItem(it) },
+                    onItemClick = { item ->
+                        selectedItem = item
+                        showItemDetailDialog = true
+                    }
+                )
             }
         }
     }
@@ -133,6 +154,17 @@ fun MainScreen(viewModel: MainViewModel) {
             onConfirm = { obj, loc, desc ->
                 viewModel.addItemManually(obj, loc, desc)
                 showAddDialog = false
+            }
+        )
+    }
+
+    // Item Detail Dialog
+    if (showItemDetailDialog && selectedItem != null) {
+        ItemDetailDialog(
+            item = selectedItem!!,
+            onDismiss = {
+                showItemDetailDialog = false
+                selectedItem = null
             }
         )
     }
@@ -273,7 +305,11 @@ fun RecordButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
+fun SearchScreen(
+    viewModel: MainViewModel,
+    uiState: MainViewModel.UiState,
+    onItemClick: (ItemEntity) -> Unit
+) {
     var searchText by remember { mutableStateOf("") }
     
     Column(
@@ -330,15 +366,23 @@ fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
         }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(uiState.searchResults) {
-                ItemCard(item = it, onDelete = {})
+            items(uiState.searchResults) { item ->
+                ItemCard(
+                    item = item,
+                    onDelete = {},
+                    onClick = { onItemClick(item) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun ItemsListScreen(items: List<ItemEntity>, onDeleteItem: (ItemEntity) -> Unit) {
+fun ItemsListScreen(
+    items: List<ItemEntity>,
+    onDeleteItem: (ItemEntity) -> Unit,
+    onItemClick: (ItemEntity) -> Unit
+) {
     if (items.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No items saved yet.", style = MaterialTheme.typography.bodyLarge)
@@ -349,16 +393,22 @@ fun ItemsListScreen(items: List<ItemEntity>, onDeleteItem: (ItemEntity) -> Unit)
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(items) { item ->
-                ItemCard(item = item, onDelete = { onDeleteItem(item) })
+                ItemCard(
+                    item = item,
+                    onDelete = { onDeleteItem(item) },
+                    onClick = { onItemClick(item) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun ItemCard(item: ItemEntity, onDelete: () -> Unit) {
+fun ItemCard(item: ItemEntity, onDelete: () -> Unit, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -426,4 +476,186 @@ fun AddItemDialog(
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ItemDetailDialog(
+    item: ItemEntity,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight(),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Item Details",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Display image if available
+                if (item.taggedImagePath != null || item.imagePath != null) {
+                    val imagePathToShow = item.taggedImagePath ?: item.imagePath
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 4.dp
+                    ) {
+                        AsyncImage(
+                            model = imagePathToShow,
+                            contentDescription = "Item image",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+
+                // Object Name
+                DetailField(
+                    icon = Icons.Default.Label,
+                    label = "Object",
+                    value = item.objectName,
+                    iconTint = Color(0xFF4F46E5)
+                )
+
+                // Location
+                DetailField(
+                    icon = Icons.Default.LocationOn,
+                    label = "Location",
+                    value = item.location,
+                    iconTint = Color(0xFFEF4444)
+                )
+
+                // Description
+                if (item.description.isNotBlank()) {
+                    DetailField(
+                        icon = Icons.Default.Description,
+                        label = "Description",
+                        value = item.description,
+                        iconTint = Color(0xFF10B981)
+                    )
+                }
+
+                // Object Attributes
+                if (!item.objectAttribute.isNullOrBlank()) {
+                    DetailField(
+                        icon = Icons.Default.Info,
+                        label = "Attributes",
+                        value = item.objectAttribute,
+                        iconTint = Color(0xFFF59E0B)
+                    )
+                }
+
+                // Location Parent
+                if (!item.locationParent.isNullOrBlank()) {
+                    DetailField(
+                        icon = Icons.Default.Home,
+                        label = "Location Parent",
+                        value = item.locationParent,
+                        iconTint = Color(0xFF8B5CF6)
+                    )
+                }
+
+                // Source Type
+                DetailField(
+                    icon = when(item.sourceType) {
+                        "voice" -> Icons.Default.Mic
+                        "image" -> Icons.Default.CameraAlt
+                        "manual" -> Icons.Default.Edit
+                        else -> Icons.Default.Source
+                    },
+                    label = "Source",
+                    value = item.sourceType.replaceFirstChar { it.uppercase() },
+                    iconTint = Color(0xFF06B6D4)
+                )
+
+                // Timestamp
+                DetailField(
+                    icon = Icons.Default.CalendarToday,
+                    label = "Saved On",
+                    value = SimpleDateFormat("MMMM d, yyyy 'at' h:mm a", Locale.getDefault())
+                        .format(Date(item.timestamp)),
+                    iconTint = Color(0xFF64748B)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4F46E5)
+                )
+            ) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DetailField(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    iconTint: Color
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
 }

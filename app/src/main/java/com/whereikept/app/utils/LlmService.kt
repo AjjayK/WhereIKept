@@ -280,7 +280,7 @@ Extraction Rules:
 1. "object": The item being stored (e.g., "keys", "passport", "wallet")
 2. "location": Where the item is stored (e.g., "kitchen drawer", "bedroom closet", "top shelf")
 3. "object_attribute": Optional. Attributes that help identify the specific item (e.g., "red color", "large size", "rectangular shape", "black leather")
-4. "location_parent": Optional. High-level location category - typically "home", "office", or "farm". Leave null for now, user will select during review.
+4. "location_parent": Always set to null. User will select this in the review screen.
 
 Examples:
 
@@ -621,7 +621,7 @@ Extraction Rules:
 1. "object": The item being stored (e.g., "keys", "wallet", "phone")
 2. "location": Where the item is visible or mentioned (e.g., "drawer", "table", "shelf")
 3. "object_attribute": Attributes visible in the image that help identify the item (e.g., "red color", "metal", "small round")
-4. "location_parent": High-level location category - typically "home", "office", or "farm". Leave null if not explicitly mentioned in transcript.
+4. "location_parent": Always set to null. User will select this in the review screen.
 
 JSON response:
 """.trimIndent()
@@ -770,14 +770,14 @@ ORIGINAL TRANSCRIPT:
 "$transcript"
 
 YOUR TASK:
-1. Look at the screenshot to see where the user positioned each tag on the image
-2. Analyze the visual context - what objects are actually visible in the image
-3. Use the tag positions to understand which object the user is referring to
-4. Optimize and refine the JSON based on:
-   - Visual evidence from the image
-   - User-confirmed tag positions (spatial relationships)
-   - Original transcript context
-   - Any additional objects or details visible in the image
+Enhance the existing object-location pairs by analyzing the screenshot. The user has positioned tags on the image to confirm which objects they're referring to.
+
+**DO NOT create new object-location pairs. Only enhance the existing ones.**
+
+For each item in the initial JSON:
+1. Look at where the user positioned the tag in the screenshot
+2. Analyze the visual details of that object in the image
+3. Enhance the data by making it more specific and detailed
 
 IMPORTANT: Respond ONLY with valid JSON. Do not include any explanatory text.
 
@@ -793,14 +793,13 @@ Output format (strict JSON):
   ]
 }
 
-Optimization Rules:
-1. Keep all user-confirmed tags from the initial JSON
-2. Improve "object" names if the image shows more specific details (e.g., "laptop" -> "MacBook Pro")
-3. Enhance "location" descriptions based on visual context (e.g., "table" -> "wooden dining table")
-4. Add or enhance "object_attribute" based on visual details from the image (e.g., color, shape, size, material)
-5. Set "location_parent" to "home", "office", or "farm" if you can infer from context, otherwise leave null
-6. Add new items if you discover additional objects in the image that relate to the transcript
-7. Remove items that don't match the visual evidence in the screenshot
+Enhancement Rules:
+1. **Keep the SAME NUMBER of items** - do not add or remove items
+2. **Enhance "object"**: Make it more specific based on visual details (e.g., "laptop" → "MacBook Pro", "keys" → "car keys")
+3. **Enhance "location"**: Add visual context (e.g., "table" → "wooden dining table", "drawer" → "top kitchen drawer")
+4. **Add "object_attribute"**: Describe visual characteristics that help identify the item (e.g., "red color", "large rectangular", "silver metal", "black leather")
+5. **Keep "location_parent" as-is**: Do not modify this field. User will select it in the review screen.
+6. **Use visual evidence**: Only include details you can actually see in the screenshot
 
 JSON response:
 """.trimIndent()

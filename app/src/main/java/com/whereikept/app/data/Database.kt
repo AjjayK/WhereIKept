@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         RecordingEntity::class,
         ImageEntity::class
     ],
-    version = 2,  // Incremented for new ItemEntity fields (nearby, timeHint, confidence, evidence)
+    version = 4,  // Added taggedImagePath field to store screenshot with overlaid tags
     exportSchema = false
 )
 abstract class WhereIKeptDatabase : RoomDatabase() {

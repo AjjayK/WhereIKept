@@ -37,10 +37,8 @@ class LlmService private constructor(private val context: Context) {
     data class ExtractedItem(
         @SerializedName("object") val objectName: String,
         val location: String,
-        val nearby: String? = null,
-        @SerializedName("time_hint") val timeHint: String? = null,
-        val confidence: Float = 0.0f,
-        val evidence: String
+        @SerializedName("object_attribute") val objectAttribute: String? = null,
+        @SerializedName("location_parent") val locationParent: String? = null
     )
 
     data class ExtractionResponse(
@@ -240,7 +238,7 @@ class LlmService private constructor(private val context: Context) {
 
                     Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s)")
                     extractionResponse.items.forEachIndexed { index, item ->
-                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} [${item.objectAttribute ?: "no attributes"}] (parent: ${item.locationParent ?: "unset"})")
                     }
                     Log.i(TAG, "===========================================")
 
@@ -272,10 +270,8 @@ Output format (strict JSON):
     {
       "object": "string",
       "location": "string",
-      "nearby": "string or null",
-      "time_hint": "string or null",
-      "confidence": 0.0-1.0,
-      "evidence": "string"
+      "object_attribute": "string or null",
+      "location_parent": "string or null"
     }
   ]
 }
@@ -283,47 +279,39 @@ Output format (strict JSON):
 Extraction Rules:
 1. "object": The item being stored (e.g., "keys", "passport", "wallet")
 2. "location": Where the item is stored (e.g., "kitchen drawer", "bedroom closet", "top shelf")
-3. "nearby": Optional. Other objects or landmarks near the item (e.g., "next to the stapler", "beside the lamp")
-4. "time_hint": Optional. Temporal information (e.g., "yesterday", "last night", "this morning")
-5. "confidence": Float 0.0-1.0 based on clarity of information. High confidence (0.8-1.0) for explicit statements, medium (0.5-0.7) for implied, low (0.0-0.4) for unclear.
-6. "evidence": The exact sentence or phrase from the text that supports this extraction
+3. "object_attribute": Optional. Attributes that help identify the specific item (e.g., "red color", "large size", "rectangular shape", "black leather")
+4. "location_parent": Optional. High-level location category - typically "home", "office", or "farm". Leave null for now, user will select during review.
 
 Examples:
 
-Input: "I put my keys in the kitchen drawer next to the spoons yesterday"
+Input: "I put my red keys in the kitchen drawer"
 Output:
 {
   "items": [
     {
       "object": "keys",
       "location": "kitchen drawer",
-      "nearby": "next to the spoons",
-      "time_hint": "yesterday",
-      "confidence": 0.95,
-      "evidence": "I put my keys in the kitchen drawer next to the spoons yesterday"
+      "object_attribute": "red color",
+      "location_parent": null
     }
   ]
 }
 
-Input: "The passport is in the study desk and my wallet is on the table"
+Input: "The blue passport is in the study desk and my black leather wallet is on the table"
 Output:
 {
   "items": [
     {
       "object": "passport",
       "location": "study desk",
-      "nearby": null,
-      "time_hint": null,
-      "confidence": 0.9,
-      "evidence": "The passport is in the study desk"
+      "object_attribute": "blue color",
+      "location_parent": null
     },
     {
       "object": "wallet",
       "location": "table",
-      "nearby": null,
-      "time_hint": null,
-      "confidence": 0.85,
-      "evidence": "my wallet is on the table"
+      "object_attribute": "black leather",
+      "location_parent": null
     }
   ]
 }
@@ -571,7 +559,7 @@ JSON response:
 
                     Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s) from multimodal input")
                     extractionResponse.items.forEachIndexed { index, item ->
-                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} [${item.objectAttribute ?: "no attributes"}] (parent: ${item.locationParent ?: "unset"})")
                     }
                     Log.i(TAG, "===========================================")
 
@@ -623,10 +611,8 @@ Output format (strict JSON):
     {
       "object": "string",
       "location": "string",
-      "nearby": "string or null",
-      "time_hint": "string or null",
-      "confidence": 0.0-1.0,
-      "evidence": "string"
+      "object_attribute": "string or null",
+      "location_parent": "string or null"
     }
   ]
 }
@@ -634,10 +620,8 @@ Output format (strict JSON):
 Extraction Rules:
 1. "object": The item being stored (e.g., "keys", "wallet", "phone")
 2. "location": Where the item is visible or mentioned (e.g., "drawer", "table", "shelf")
-3. "nearby": Other visible objects near the item
-4. "time_hint": Temporal information from transcript (e.g., "just now", "today")
-5. "confidence": Higher (0.8-1.0) if object is visible in image, lower (0.4-0.7) if only in transcript
-6. "evidence": What you saw/read that supports this extraction
+3. "object_attribute": Attributes visible in the image that help identify the item (e.g., "red color", "metal", "small round")
+4. "location_parent": High-level location category - typically "home", "office", or "farm". Leave null if not explicitly mentioned in transcript.
 
 JSON response:
 """.trimIndent()
@@ -661,15 +645,15 @@ JSON response:
                     ExtractedItem(
                         objectName = parts[0],
                         location = parts[1],
-                        confidence = 1.0f, // User-confirmed tags have full confidence
-                        evidence = transcript
+                        objectAttribute = null,  // Will be filled in review screen
+                        locationParent = null  // User will select in review screen
                     )
                 } else {
                     ExtractedItem(
                         objectName = tagText,
                         location = "unknown",
-                        confidence = 0.5f,
-                        evidence = transcript
+                        objectAttribute = null,
+                        locationParent = null
                     )
                 }
             }
@@ -755,7 +739,7 @@ JSON response:
 
                     Log.i(TAG, "Optimized to ${optimizedResponse.items.size} item(s)")
                     optimizedResponse.items.forEachIndexed { index, item ->
-                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} [${item.objectAttribute ?: "no attributes"}] (parent: ${item.locationParent ?: "unset"})")
                     }
                     Log.i(TAG, "===========================================")
 
@@ -803,10 +787,8 @@ Output format (strict JSON):
     {
       "object": "string",
       "location": "string",
-      "nearby": "string or null",
-      "time_hint": "string or null",
-      "confidence": 0.0-1.0,
-      "evidence": "string"
+      "object_attribute": "string or null",
+      "location_parent": "string or null"
     }
   ]
 }
@@ -815,11 +797,10 @@ Optimization Rules:
 1. Keep all user-confirmed tags from the initial JSON
 2. Improve "object" names if the image shows more specific details (e.g., "laptop" -> "MacBook Pro")
 3. Enhance "location" descriptions based on visual context (e.g., "table" -> "wooden dining table")
-4. Update "nearby" based on what's visible around the positioned tags in the image
-5. Adjust "confidence" higher (0.85-1.0) for items clearly visible and positioned by user
-6. Update "evidence" to include visual observations from the screenshot
-7. Add new items if you discover additional objects in the image that relate to the transcript
-8. Remove or lower confidence of items that don't match the visual evidence
+4. Add or enhance "object_attribute" based on visual details from the image (e.g., color, shape, size, material)
+5. Set "location_parent" to "home", "office", or "farm" if you can infer from context, otherwise leave null
+6. Add new items if you discover additional objects in the image that relate to the transcript
+7. Remove items that don't match the visual evidence in the screenshot
 
 JSON response:
 """.trimIndent()

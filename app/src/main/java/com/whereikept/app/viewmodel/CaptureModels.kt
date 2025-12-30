@@ -78,10 +78,10 @@ data class ImageTag(
     val text: String,
     val objectName: String = "",      // Parsed object name
     val location: String = "",        // Parsed location
-    val confidence: Float = 0f,
+    val objectAttribute: String? = null,  // Object attributes (color, size, shape, material)
+    val locationParent: String? = null,   // High-level location category (home, office, farm)
     val positionX: Float? = null,     // Null = not positioned yet
-    val positionY: Float? = null,
-    val evidence: String = ""
+    val positionY: Float? = null
 )
 
 /**

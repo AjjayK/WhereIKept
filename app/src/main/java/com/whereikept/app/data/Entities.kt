@@ -15,11 +15,10 @@ data class ItemEntity(
     val objectName: String,           // What the user stored (e.g., "keys", "passport")
     val location: String,             // Where it was stored (e.g., "kitchen drawer", "bedroom closet")
     val description: String = "",     // Additional context
-    val nearby: String? = null,       // Nearby objects (e.g., "next to the stapler")
-    val timeHint: String? = null,     // Temporal information (e.g., "yesterday night", "last week")
-    val confidence: Float? = null,    // LLM extraction confidence (0.0 to 1.0)
-    val evidence: String? = null,     // Raw sentence that led to extraction
-    val imagePath: String? = null,    // Path to associated image if any
+    val objectAttribute: String? = null,  // Object attributes (e.g., "red color", "large size", "metal")
+    val locationParent: String? = null,   // High-level location (e.g., "home", "office", "farm")
+    val imagePath: String? = null,    // Path to original captured image
+    val taggedImagePath: String? = null,  // Path to image with overlaid tags (screenshot from review)
     val timestamp: Long = System.currentTimeMillis(),
     val sourceType: String = "voice"  // "voice" or "image" or "manual"
 )
@@ -34,9 +33,8 @@ data class ItemFts(
     val objectName: String,
     val location: String,
     val description: String,
-    val nearby: String,
-    val timeHint: String,
-    val evidence: String
+    val objectAttribute: String,
+    val locationParent: String
 )
 
 /**

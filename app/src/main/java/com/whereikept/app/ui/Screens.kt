@@ -3,11 +3,16 @@ package com.whereikept.app.ui
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -38,53 +43,38 @@ private fun formatDuration(millis: Long): String {
 fun MainScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
-    
+
     var selectedTab by remember { mutableIntStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
-    
+    var selectedItem by remember { mutableStateOf<ItemEntity?>(null) }
+    var showItemDetailDialog by remember { mutableStateOf(false) }
+
     val snackbarHostState = remember { SnackbarHostState() }
-    
+
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearError()
         }
     }
-    
+
     LaunchedEffect(uiState.successMessage) {
         uiState.successMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearSuccessMessage()
         }
     }
-    
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Where I Kept")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
         bottomBar = {
+            // Hide bottom nav when in capture workflow (except IDLE state)
             NavigationBar {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
-                    label = { Text("Record") }
+                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Capture") },
+                    label = { Text("Capture") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
@@ -95,7 +85,7 @@ fun MainScreen(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { 
+                    icon = {
                         BadgedBox(
                             badge = {
                                 if (uiState.itemCount > 0) {
@@ -123,13 +113,40 @@ fun MainScreen(viewModel: MainViewModel) {
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (selectedTab) {
-                0 -> RecordScreen(viewModel, uiState)
-                1 -> SearchScreen(viewModel, uiState)
-                2 -> ItemsListScreen(allItems, onDeleteItem = { viewModel.deleteItem(it) })
+                0 -> {
+                    // Use the new enhanced CaptureScreen
+                    // Import the CaptureViewModel instead
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val captureViewModel = androidx.lifecycle.viewmodel.compose.viewModel<com.whereikept.app.viewmodel.CaptureViewModel>(
+                        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                @Suppress("UNCHECKED_CAST")
+                                return com.whereikept.app.viewmodel.CaptureViewModel(context.applicationContext as android.app.Application) as T
+                            }
+                        }
+                    )
+                    CaptureScreen(viewModel = captureViewModel)
+                }
+                1 -> SearchScreen(
+                    viewModel = viewModel,
+                    uiState = uiState,
+                    onItemClick = { item ->
+                        selectedItem = item
+                        showItemDetailDialog = true
+                    }
+                )
+                2 -> ItemsListScreen(
+                    items = allItems,
+                    onDeleteItem = { viewModel.deleteItem(it) },
+                    onItemClick = { item ->
+                        selectedItem = item
+                        showItemDetailDialog = true
+                    }
+                )
             }
         }
     }
-    
+
     // Add Item Dialog
     if (showAddDialog) {
         AddItemDialog(
@@ -140,125 +157,49 @@ fun MainScreen(viewModel: MainViewModel) {
             }
         )
     }
-}
 
-@Composable
-fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Instructions
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Tap the microphone and say where you're putting things.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Example: \"I'm putting my keys in the kitchen drawer\"",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+    // Item Detail Dialog
+    if (showItemDetailDialog && selectedItem != null) {
+        ItemDetailDialog(
+            item = selectedItem!!,
+            onDismiss = {
+                showItemDetailDialog = false
+                selectedItem = null
             }
-        }
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Recording visualization
-        AnimatedRecordingIndicator(
-            isRecording = uiState.isRecording,
-            isProcessing = uiState.isProcessing
         )
-        
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Recording duration and transcribed text
-        AnimatedVisibility(
-            visible = uiState.isRecording || uiState.transcribedText.isNotBlank(),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    if (uiState.isRecording) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = formatDuration(uiState.recordingDuration),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.GraphicEq,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                LinearProgressIndicator(
-                                    progress = { uiState.audioLevel.coerceIn(0f, 1f) },
-                                    modifier = Modifier.width(100.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    } else if (uiState.transcribedText.isNotBlank()) {
-                        Text(
-                            text = uiState.transcribedText,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Record button
-        RecordButton(
-            isRecording = uiState.isRecording,
-            isProcessing = uiState.isProcessing,
-            onStartRecording = { viewModel.startRecording() },
-            onStopRecording = { viewModel.stopRecording() }
-        )
-        
-        Spacer(modifier = Modifier.height(48.dp))
     }
 }
 
+/**
+ * @deprecated This screen is no longer used. Recording functionality has been moved to CaptureScreen.
+ * The implementation has been removed to avoid compilation errors with refactored MainViewModel.
+ * See CaptureScreen for the new enhanced recording workflow.
+ */
+@Deprecated(
+    message = "Use CaptureScreen instead",
+    replaceWith = ReplaceWith("CaptureScreen(viewModel)"),
+    level = DeprecationLevel.ERROR
+)
+@Composable
+fun RecordScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
+    // This screen has been replaced by CaptureScreen
+    // Implementation removed as MainViewModel no longer supports recording
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "This screen is deprecated. Use the Capture tab instead.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+/**
+ * @deprecated No longer used. Kept for reference only.
+ */
+@Deprecated("No longer used", level = DeprecationLevel.WARNING)
 @Composable
 fun AnimatedRecordingIndicator(isRecording: Boolean, isProcessing: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -316,6 +257,10 @@ fun AnimatedRecordingIndicator(isRecording: Boolean, isProcessing: Boolean) {
     }
 }
 
+/**
+ * @deprecated No longer used. Kept for reference only.
+ */
+@Deprecated("No longer used", level = DeprecationLevel.WARNING)
 @Composable
 fun RecordButton(
     isRecording: Boolean,
@@ -360,7 +305,11 @@ fun RecordButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
+fun SearchScreen(
+    viewModel: MainViewModel,
+    uiState: MainViewModel.UiState,
+    onItemClick: (ItemEntity) -> Unit
+) {
     var searchText by remember { mutableStateOf("") }
     
     Column(
@@ -417,15 +366,23 @@ fun SearchScreen(viewModel: MainViewModel, uiState: MainViewModel.UiState) {
         }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(uiState.searchResults) {
-                ItemCard(item = it, onDelete = {})
+            items(uiState.searchResults) { item ->
+                ItemCard(
+                    item = item,
+                    onDelete = {},
+                    onClick = { onItemClick(item) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun ItemsListScreen(items: List<ItemEntity>, onDeleteItem: (ItemEntity) -> Unit) {
+fun ItemsListScreen(
+    items: List<ItemEntity>,
+    onDeleteItem: (ItemEntity) -> Unit,
+    onItemClick: (ItemEntity) -> Unit
+) {
     if (items.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No items saved yet.", style = MaterialTheme.typography.bodyLarge)
@@ -436,16 +393,22 @@ fun ItemsListScreen(items: List<ItemEntity>, onDeleteItem: (ItemEntity) -> Unit)
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(items) { item ->
-                ItemCard(item = item, onDelete = { onDeleteItem(item) })
+                ItemCard(
+                    item = item,
+                    onDelete = { onDeleteItem(item) },
+                    onClick = { onItemClick(item) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun ItemCard(item: ItemEntity, onDelete: () -> Unit) {
+fun ItemCard(item: ItemEntity, onDelete: () -> Unit, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -513,4 +476,186 @@ fun AddItemDialog(
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ItemDetailDialog(
+    item: ItemEntity,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight(),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Item Details",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Display image if available
+                if (item.taggedImagePath != null || item.imagePath != null) {
+                    val imagePathToShow = item.taggedImagePath ?: item.imagePath
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 4.dp
+                    ) {
+                        AsyncImage(
+                            model = imagePathToShow,
+                            contentDescription = "Item image",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+
+                // Object Name
+                DetailField(
+                    icon = Icons.Default.Label,
+                    label = "Object",
+                    value = item.objectName,
+                    iconTint = Color(0xFF4F46E5)
+                )
+
+                // Location
+                DetailField(
+                    icon = Icons.Default.LocationOn,
+                    label = "Location",
+                    value = item.location,
+                    iconTint = Color(0xFFEF4444)
+                )
+
+                // Description
+                if (item.description.isNotBlank()) {
+                    DetailField(
+                        icon = Icons.Default.Description,
+                        label = "Description",
+                        value = item.description,
+                        iconTint = Color(0xFF10B981)
+                    )
+                }
+
+                // Object Attributes
+                if (!item.objectAttribute.isNullOrBlank()) {
+                    DetailField(
+                        icon = Icons.Default.Info,
+                        label = "Attributes",
+                        value = item.objectAttribute,
+                        iconTint = Color(0xFFF59E0B)
+                    )
+                }
+
+                // Location Parent
+                if (!item.locationParent.isNullOrBlank()) {
+                    DetailField(
+                        icon = Icons.Default.Home,
+                        label = "Location Parent",
+                        value = item.locationParent,
+                        iconTint = Color(0xFF8B5CF6)
+                    )
+                }
+
+                // Source Type
+                DetailField(
+                    icon = when(item.sourceType) {
+                        "voice" -> Icons.Default.Mic
+                        "image" -> Icons.Default.CameraAlt
+                        "manual" -> Icons.Default.Edit
+                        else -> Icons.Default.Source
+                    },
+                    label = "Source",
+                    value = item.sourceType.replaceFirstChar { it.uppercase() },
+                    iconTint = Color(0xFF06B6D4)
+                )
+
+                // Timestamp
+                DetailField(
+                    icon = Icons.Default.CalendarToday,
+                    label = "Saved On",
+                    value = SimpleDateFormat("MMMM d, yyyy 'at' h:mm a", Locale.getDefault())
+                        .format(Date(item.timestamp)),
+                    iconTint = Color(0xFF64748B)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4F46E5)
+                )
+            ) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DetailField(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    iconTint: Color
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
 }

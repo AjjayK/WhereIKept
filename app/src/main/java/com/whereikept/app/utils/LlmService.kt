@@ -1,6 +1,9 @@
 package com.whereikept.app.utils
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
@@ -10,28 +13,32 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Conversation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.fold
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.io.ByteArrayOutputStream
 
 /**
  * LLM-based extraction service using LiteRT-LM with Gemma 3n E2B.
  * Extracts structured object and location information from transcribed audio.
+ *
+ * Singleton pattern to prevent multiple Engine initializations which causes crashes.
  */
-class LlmService(private val context: Context) {
+class LlmService private constructor(private val context: Context) {
 
     // Data models for JSON extraction
     data class ExtractedItem(
         @SerializedName("object") val objectName: String,
         val location: String,
-        val nearby: String? = null,
-        @SerializedName("time_hint") val timeHint: String? = null,
-        val confidence: Float = 0.0f,
-        val evidence: String
+        @SerializedName("object_attribute") val objectAttribute: String? = null,
+        @SerializedName("location_parent") val locationParent: String? = null
     )
 
     data class ExtractionResponse(
@@ -41,9 +48,23 @@ class LlmService(private val context: Context) {
     private var engine: Engine? = null
     private var isInitialized = false
     private val gson = Gson()
+    private val initMutex = Mutex()
 
     companion object {
         private const val TAG = "LlmService"
+
+        @Volatile
+        private var INSTANCE: LlmService? = null
+
+        /**
+         * Get singleton instance of LlmService.
+         * Thread-safe double-checked locking.
+         */
+        fun getInstance(context: Context): LlmService {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: LlmService(context.applicationContext).also { INSTANCE = it }
+            }
+        }
         // Gemma 3n E2B - Optimized for mobile/edge devices (2025)
         private const val MODEL_DIR_NAME = "models"
         private val MODEL_NAMES = listOf(
@@ -59,7 +80,7 @@ class LlmService(private val context: Context) {
         private val MODEL_EXTENSIONS = listOf(".litertlm", ".task", ".bin", ".tflite")
 
         // Default LLM configuration (from Google AI Edge Gallery)
-        private const val DEFAULT_MAX_TOKEN = 1024
+        private const val DEFAULT_MAX_TOKEN = 8192  // Gemma 3N E2B supports 32K context, using 8K for output
         private const val DEFAULT_TOPK = 64
         private const val DEFAULT_TOPP = 0.95
         private const val DEFAULT_TEMPERATURE = 1.0
@@ -67,72 +88,82 @@ class LlmService(private val context: Context) {
 
     /**
      * Initialize LiteRT-LM engine.
-     * Should be called on a background thread.
+     * Thread-safe with mutex to prevent concurrent initialization.
+     * If already initialized, returns true immediately.
      */
-    suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
-        Log.i(TAG, "===========================================")
-        Log.i(TAG, "Initializing LiteRT-LM Service")
-        Log.i(TAG, "===========================================")
+    suspend fun initialize(): Boolean = initMutex.withLock {
+        // If already initialized, return success immediately
+        if (isInitialized && engine != null) {
+            Log.d(TAG, "LiteRT-LM already initialized, skipping re-initialization")
+            return@withLock true
+        }
 
-        try {
-            val modelPath = findModelFile()
-            if (modelPath == null) {
-                val preferredPath = context.getExternalFilesDir(MODEL_DIR_NAME)?.absolutePath ?: "N/A"
-                Log.w(TAG, "===========================================")
-                Log.w(TAG, "Gemma 3n E2B model NOT FOUND on device storage!")
-                Log.w(TAG, "===========================================")
-                Log.w(TAG, "Please place the model file in app storage:")
-                Log.w(TAG, "  Preferred location: $preferredPath")
-                Log.w(TAG, "  Supported formats: .litertlm (recommended), .task, .bin, .tflite")
-                Log.w(TAG, "  Recommended: gemma-3n-e2b-it-int4.litertlm")
-                Log.w(TAG, "")
-                Log.w(TAG, "Download from:")
-                Log.w(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
-                Log.w(TAG, "  Kaggle: https://www.kaggle.com/models/google/gemma-3n")
-                Log.w(TAG, "")
-                Log.w(TAG, "After downloading:")
-                Log.w(TAG, "  1. Download the .litertlm or .task file")
-                Log.w(TAG, "  2. Use 'adb push' to copy to: $preferredPath")
-                Log.w(TAG, "     Example: adb push gemma-3n-e2b-it-int4.litertlm $preferredPath/")
-                Log.w(TAG, "  3. Relaunch the app")
-                Log.w(TAG, "===========================================")
-                return@withContext false
-            }
-
-            Log.i(TAG, "Found model: ${modelPath.name}")
-            Log.i(TAG, "Model path: ${modelPath.absolutePath}")
-            Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
-
-            // Configure LiteRT-LM Engine with default settings
-            Log.i(TAG, "Configuring LiteRT-LM Engine...")
-
-            val engineConfig = EngineConfig(
-                modelPath = modelPath.absolutePath,
-                backend = Backend.CPU,  // Use CPU to avoid OpenCL issues
-                maxNumTokens = DEFAULT_MAX_TOKEN,
-                cacheDir = context.cacheDir.absolutePath
-            )
-
-            Log.i(TAG, "Creating and initializing engine...")
-            val initStartTime = System.currentTimeMillis()
-
-            engine = Engine(engineConfig)
-            engine?.initialize()
-
-            val initDuration = System.currentTimeMillis() - initStartTime
-            isInitialized = true
-
-            Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
-            Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
+        withContext(Dispatchers.IO) {
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Initializing LiteRT-LM Service")
             Log.i(TAG, "===========================================")
 
-            return@withContext true
+            try {
+                val modelPath = findModelFile()
+                if (modelPath == null) {
+                    val preferredPath = context.getExternalFilesDir(MODEL_DIR_NAME)?.absolutePath ?: "N/A"
+                    Log.w(TAG, "===========================================")
+                    Log.w(TAG, "Gemma 3n E2B model NOT FOUND on device storage!")
+                    Log.w(TAG, "===========================================")
+                    Log.w(TAG, "Please place the model file in app storage:")
+                    Log.w(TAG, "  Preferred location: $preferredPath")
+                    Log.w(TAG, "  Supported formats: .litertlm (recommended), .task, .bin, .tflite")
+                    Log.w(TAG, "  Recommended: gemma-3n-e2b-it-int4.litertlm")
+                    Log.w(TAG, "")
+                    Log.w(TAG, "Download from:")
+                    Log.w(TAG, "  Hugging Face: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm")
+                    Log.w(TAG, "  Kaggle: https://www.kaggle.com/models/google/gemma-3n")
+                    Log.w(TAG, "")
+                    Log.w(TAG, "After downloading:")
+                    Log.w(TAG, "  1. Download the .litertlm or .task file")
+                    Log.w(TAG, "  2. Use 'adb push' to copy to: $preferredPath")
+                    Log.w(TAG, "     Example: adb push gemma-3n-e2b-it-int4.litertlm $preferredPath/")
+                    Log.w(TAG, "  3. Relaunch the app")
+                    Log.w(TAG, "===========================================")
+                    return@withContext false
+                }
 
-        } catch (e: Exception) {
-            Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
-            Log.e(TAG, "===========================================")
-            isInitialized = false
-            return@withContext false
+                Log.i(TAG, "Found model: ${modelPath.name}")
+                Log.i(TAG, "Model path: ${modelPath.absolutePath}")
+                Log.i(TAG, "Model size: ${modelPath.length() / 1024 / 1024} MB")
+
+                // Configure LiteRT-LM Engine with default settings
+                Log.i(TAG, "Configuring LiteRT-LM Engine...")
+
+                val engineConfig = EngineConfig(
+                    modelPath = modelPath.absolutePath,
+                    backend = Backend.CPU,  // Temporary: Use GPU for all processing
+                    visionBackend = Backend.GPU,  // MUST be GPU for Gemma 3N vision/multimodal
+                    maxNumTokens = DEFAULT_MAX_TOKEN,
+                    cacheDir = context.cacheDir.absolutePath
+                )
+
+                Log.i(TAG, "Creating and initializing engine...")
+                val initStartTime = System.currentTimeMillis()
+
+                engine = Engine(engineConfig)
+                engine?.initialize()
+
+                val initDuration = System.currentTimeMillis() - initStartTime
+                isInitialized = true
+
+                Log.i(TAG, "✓ LiteRT-LM Engine initialized successfully")
+                Log.i(TAG, "  Initialization time: ${initDuration / 1000.0}s")
+                Log.i(TAG, "===========================================")
+
+                return@withContext true
+
+            } catch (e: Exception) {
+                Log.e(TAG, "ERROR initializing LiteRT-LM: ${e.message}", e)
+                Log.e(TAG, "===========================================")
+                isInitialized = false
+                return@withContext false
+            }
         }
     }
 
@@ -201,12 +232,13 @@ class LlmService(private val context: Context) {
                     Log.i(TAG, "  Response length: ${response.length} chars")
                     Log.d(TAG, "  Raw response:\n$response")
 
-                    // Parse JSON response
-                    val extractionResponse = parseJsonResponse(response)
+                    // Clean and parse JSON response
+                    val cleanedJson = cleanJsonResponse(response)
+                    val extractionResponse = parseJsonResponse(cleanedJson)
 
                     Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s)")
                     extractionResponse.items.forEachIndexed { index, item ->
-                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} (confidence: ${item.confidence})")
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} [${item.objectAttribute ?: "no attributes"}] (parent: ${item.locationParent ?: "unset"})")
                     }
                     Log.i(TAG, "===========================================")
 
@@ -238,10 +270,8 @@ Output format (strict JSON):
     {
       "object": "string",
       "location": "string",
-      "nearby": "string or null",
-      "time_hint": "string or null",
-      "confidence": 0.0-1.0,
-      "evidence": "string"
+      "object_attribute": "string or null",
+      "location_parent": "string or null"
     }
   ]
 }
@@ -249,47 +279,39 @@ Output format (strict JSON):
 Extraction Rules:
 1. "object": The item being stored (e.g., "keys", "passport", "wallet")
 2. "location": Where the item is stored (e.g., "kitchen drawer", "bedroom closet", "top shelf")
-3. "nearby": Optional. Other objects or landmarks near the item (e.g., "next to the stapler", "beside the lamp")
-4. "time_hint": Optional. Temporal information (e.g., "yesterday", "last night", "this morning")
-5. "confidence": Float 0.0-1.0 based on clarity of information. High confidence (0.8-1.0) for explicit statements, medium (0.5-0.7) for implied, low (0.0-0.4) for unclear.
-6. "evidence": The exact sentence or phrase from the text that supports this extraction
+3. "object_attribute": Optional. Attributes that help identify the specific item (e.g., "red color", "large size", "rectangular shape", "black leather")
+4. "location_parent": Always set to null. User will select this in the review screen.
 
 Examples:
 
-Input: "I put my keys in the kitchen drawer next to the spoons yesterday"
+Input: "I put my red keys in the kitchen drawer"
 Output:
 {
   "items": [
     {
       "object": "keys",
       "location": "kitchen drawer",
-      "nearby": "next to the spoons",
-      "time_hint": "yesterday",
-      "confidence": 0.95,
-      "evidence": "I put my keys in the kitchen drawer next to the spoons yesterday"
+      "object_attribute": "red color",
+      "location_parent": null
     }
   ]
 }
 
-Input: "The passport is in the study desk and my wallet is on the table"
+Input: "The blue passport is in the study desk and my black leather wallet is on the table"
 Output:
 {
   "items": [
     {
       "object": "passport",
       "location": "study desk",
-      "nearby": null,
-      "time_hint": null,
-      "confidence": 0.9,
-      "evidence": "The passport is in the study desk"
+      "object_attribute": "blue color",
+      "location_parent": null
     },
     {
       "object": "wallet",
       "location": "table",
-      "nearby": null,
-      "time_hint": null,
-      "confidence": 0.85,
-      "evidence": "my wallet is on the table"
+      "object_attribute": "black leather",
+      "location_parent": null
     }
   ]
 }
@@ -299,6 +321,50 @@ Now extract from this text:
 
 JSON response:
 """.trimIndent()
+    }
+
+    /**
+     * Clean and extract JSON from raw LLM response.
+     * Handles markdown blocks, extra text, and common formatting issues.
+     * No LLM call - pure string processing for reliability.
+     */
+    private fun cleanJsonResponse(rawResponse: String): String {
+        Log.d(TAG, "Cleaning JSON response...")
+
+        var cleaned = rawResponse.trim()
+
+        // Remove markdown code blocks
+        if (cleaned.startsWith("```json")) {
+            cleaned = cleaned.removePrefix("```json")
+        } else if (cleaned.startsWith("```")) {
+            cleaned = cleaned.removePrefix("```")
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.removeSuffix("```")
+        }
+        cleaned = cleaned.trim()
+
+        // Extract JSON object - find first { and last }
+        val jsonStart = cleaned.indexOf('{')
+        val jsonEnd = cleaned.lastIndexOf('}')
+
+        if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
+            cleaned = cleaned.substring(jsonStart, jsonEnd + 1)
+        }
+
+        // Fix common JSON issues
+        // 1. Remove trailing commas before ] or }
+        cleaned = cleaned.replace(Regex(",\\s*\\]"), "]")
+        cleaned = cleaned.replace(Regex(",\\s*\\}"), "}")
+
+        // 2. Fix unquoted null values
+        cleaned = cleaned.replace(Regex(":\\s*null\\s*([,}\\]])"), ": null$1")
+
+        // 3. Ensure proper string escaping for nested quotes
+        // This is a simple fix - might need more robust handling
+
+        Log.d(TAG, "Cleaned JSON:\n$cleaned")
+        return cleaned
     }
 
     /**
@@ -409,6 +475,343 @@ JSON response:
                 MODEL_EXTENSIONS.any { file.name.endsWith(it, ignoreCase = true) } &&
                 !file.name.startsWith("ggml-", ignoreCase = true) // Exclude whisper models
             }
+    }
+
+    /**
+     * Extract items from transcript + image (multimodal input).
+     * Uses Gemma 3N's vision capabilities to analyze both text and image.
+     */
+    suspend fun extractItemsWithImage(
+        transcript: String,
+        imageUri: Uri
+    ): ExtractionResponse {
+        return withContext(Dispatchers.IO) {
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Extracting items from transcript + image (multimodal)")
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Transcription: \"$transcript\"")
+            Log.i(TAG, "Image URI: $imageUri")
+
+            if (!isInitialized || engine == null) {
+                Log.w(TAG, "LLM not initialized, attempting initialization...")
+                val success = initialize()
+                if (!success) {
+                    Log.e(TAG, "Failed to initialize LLM, returning empty response")
+                    return@withContext ExtractionResponse(emptyList())
+                }
+            }
+
+            try {
+                // Load image bitmap
+                val bitmap = loadBitmapFromUri(imageUri)
+                if (bitmap == null) {
+                    Log.e(TAG, "Failed to load image, falling back to text-only extraction")
+                    return@withContext extractItemsFromTranscription(transcript)
+                }
+
+                Log.i(TAG, "Image loaded: ${bitmap.width}x${bitmap.height}")
+
+                val prompt = buildMultimodalExtractionPrompt(transcript)
+                Log.i(TAG, "Generated multimodal prompt (${prompt.length} chars)")
+
+                val conversationConfig = ConversationConfig(
+                    systemMessage = Message.of("You are a JSON extraction assistant. Analyze images and text to extract object and location information. Respond ONLY with valid JSON."),
+                    samplerConfig = SamplerConfig(
+                        topK = DEFAULT_TOPK,
+                        topP = DEFAULT_TOPP,
+                        temperature = DEFAULT_TEMPERATURE
+                    )
+                )
+
+                engine!!.createConversation(conversationConfig).use { conversation ->
+                    Log.i(TAG, "Calling LiteRT-LM with image + text...")
+                    val startTime = System.currentTimeMillis()
+
+                    // Create multimodal message with image and text
+                    val contents = mutableListOf<Content>()
+                    contents.add(Content.ImageBytes(bitmap.toPngByteArray()))
+                    contents.add(Content.Text(prompt))
+                    val userMessage = Message.of(contents)
+
+                    val response = conversation.sendMessageAsync(userMessage)
+                        .catch { e ->
+                            Log.e(TAG, "Error during multimodal inference: ${e.message}", e)
+                            throw e
+                        }
+                        .fold(StringBuilder()) { acc, message ->
+                            acc.append(message.toString())
+                            acc
+                        }
+                        .toString()
+
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - startTime
+
+                    Log.i(TAG, "-------------------------------------------")
+                    Log.i(TAG, "Multimodal LLM Response received:")
+                    Log.i(TAG, "  Duration: $duration ms")
+                    Log.i(TAG, "  Response length: ${response.length} chars")
+                    Log.d(TAG, "  Raw response:\n$response")
+
+                    // Clean and parse JSON response
+                    val cleanedJson = cleanJsonResponse(response)
+                    val extractionResponse = parseJsonResponse(cleanedJson)
+
+                    Log.i(TAG, "Extracted ${extractionResponse.items.size} item(s) from multimodal input")
+                    extractionResponse.items.forEachIndexed { index, item ->
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} [${item.objectAttribute ?: "no attributes"}] (parent: ${item.locationParent ?: "unset"})")
+                    }
+                    Log.i(TAG, "===========================================")
+
+                    return@withContext extractionResponse
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "ERROR during multimodal extraction: ${e.message}", e)
+                Log.e(TAG, "Falling back to text-only extraction")
+                // Fallback to text-only extraction if image processing fails
+                return@withContext extractItemsFromTranscription(transcript)
+            }
+        }
+    }
+
+    /**
+     * Load bitmap from URI
+     */
+    private fun loadBitmapFromUri(uri: Uri): Bitmap? {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                BitmapFactory.decodeStream(inputStream)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load bitmap from URI: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Build prompt for multimodal extraction
+     */
+    private fun buildMultimodalExtractionPrompt(transcript: String): String {
+        return """
+Analyze the provided image and transcript to extract object and location information.
+
+IMPORTANT: Respond ONLY with valid JSON. Do not include any explanatory text.
+
+Transcript: "$transcript"
+
+Instructions:
+1. Look at the image to identify objects and their spatial locations
+2. Combine visual information from the image with context from the transcript
+3. Extract object-location pairs with high confidence
+
+Output format (strict JSON):
+{
+  "items": [
+    {
+      "object": "string",
+      "location": "string",
+      "object_attribute": "string or null",
+      "location_parent": "string or null"
+    }
+  ]
+}
+
+Extraction Rules:
+1. "object": The item being stored (e.g., "keys", "wallet", "phone")
+2. "location": Where the item is visible or mentioned (e.g., "drawer", "table", "shelf")
+3. "object_attribute": Attributes visible in the image that help identify the item (e.g., "red color", "metal", "small round")
+4. "location_parent": Always set to null. User will select this in the review screen.
+
+JSON response:
+""".trimIndent()
+    }
+
+    /**
+     * Generate structured tags from final review (for database commands)
+     * This is called after user has reviewed and positioned tags
+     */
+    suspend fun generateTagsForDatabase(
+        transcript: String,
+        tags: List<String>
+    ): ExtractionResponse {
+        return withContext(Dispatchers.IO) {
+            Log.i(TAG, "Generating structured data for database from tags")
+
+            // Convert user-edited tags back to structured format
+            val items = tags.map { tagText ->
+                val parts = tagText.split("→").map { it.trim() }
+                if (parts.size >= 2) {
+                    ExtractedItem(
+                        objectName = parts[0],
+                        location = parts[1],
+                        objectAttribute = null,  // Will be filled in review screen
+                        locationParent = null  // User will select in review screen
+                    )
+                } else {
+                    ExtractedItem(
+                        objectName = tagText,
+                        location = "unknown",
+                        objectAttribute = null,
+                        locationParent = null
+                    )
+                }
+            }
+
+            ExtractionResponse(items)
+        }
+    }
+
+    /**
+     * Optimize initial JSON with screenshot showing dragged-and-dropped pills and transcript.
+     * This is called after the user finishes reviewing and editing in the review screen.
+     * The screenshot shows the image with positioned tags, allowing Gemma to refine the JSON
+     * based on visual context and user-confirmed tag placements.
+     */
+    suspend fun optimizeJsonWithScreenshot(
+        initialJson: ExtractionResponse,
+        screenshotBitmap: Bitmap,
+        transcript: String
+    ): ExtractionResponse {
+        return withContext(Dispatchers.IO) {
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Optimizing JSON with screenshot and transcript")
+            Log.i(TAG, "===========================================")
+            Log.i(TAG, "Initial items: ${initialJson.items.size}")
+            Log.i(TAG, "Transcript: \"$transcript\"")
+            Log.i(TAG, "Screenshot: ${screenshotBitmap.width}x${screenshotBitmap.height}")
+
+            if (!isInitialized || engine == null) {
+                Log.w(TAG, "LLM not initialized, attempting initialization...")
+                val success = initialize()
+                if (!success) {
+                    Log.e(TAG, "Failed to initialize LLM, returning original JSON")
+                    return@withContext initialJson
+                }
+            }
+
+            try {
+                val prompt = buildOptimizationPrompt(initialJson, transcript)
+                Log.i(TAG, "Generated optimization prompt (${prompt.length} chars)")
+
+                val conversationConfig = ConversationConfig(
+                    systemMessage = Message.of("You are a JSON optimization assistant. Analyze the screenshot showing user-positioned tags on an image, combine with transcript context, and optimize the JSON. Respond ONLY with valid JSON."),
+                    samplerConfig = SamplerConfig(
+                        topK = DEFAULT_TOPK,
+                        topP = DEFAULT_TOPP,
+                        temperature = DEFAULT_TEMPERATURE
+                    )
+                )
+
+                engine!!.createConversation(conversationConfig).use { conversation ->
+                    Log.i(TAG, "Calling LiteRT-LM with screenshot for optimization...")
+                    val startTime = System.currentTimeMillis()
+
+                    // Create multimodal message with screenshot and prompt
+                    val contents = mutableListOf<Content>()
+                    contents.add(Content.ImageBytes(screenshotBitmap.toPngByteArray()))
+                    contents.add(Content.Text(prompt))
+                    val userMessage = Message.of(contents)
+
+                    val response = conversation.sendMessageAsync(userMessage)
+                        .catch { e ->
+                            Log.e(TAG, "Error during optimization inference: ${e.message}", e)
+                            throw e
+                        }
+                        .fold(StringBuilder()) { acc, message ->
+                            acc.append(message.toString())
+                            acc
+                        }
+                        .toString()
+
+                    val endTime = System.currentTimeMillis()
+                    val duration = endTime - startTime
+
+                    Log.i(TAG, "-------------------------------------------")
+                    Log.i(TAG, "Optimization Response received:")
+                    Log.i(TAG, "  Duration: $duration ms")
+                    Log.i(TAG, "  Response length: ${response.length} chars")
+                    Log.d(TAG, "  Raw response:\n$response")
+
+                    // Clean and parse JSON response
+                    val cleanedJson = cleanJsonResponse(response)
+                    val optimizedResponse = parseJsonResponse(cleanedJson)
+
+                    Log.i(TAG, "Optimized to ${optimizedResponse.items.size} item(s)")
+                    optimizedResponse.items.forEachIndexed { index, item ->
+                        Log.i(TAG, "  Item ${index + 1}: ${item.objectName} -> ${item.location} [${item.objectAttribute ?: "no attributes"}] (parent: ${item.locationParent ?: "unset"})")
+                    }
+                    Log.i(TAG, "===========================================")
+
+                    return@withContext optimizedResponse
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "ERROR during JSON optimization: ${e.message}", e)
+                Log.e(TAG, "Falling back to original JSON")
+                return@withContext initialJson
+            }
+        }
+    }
+
+    /**
+     * Build prompt for JSON optimization with screenshot
+     */
+    private fun buildOptimizationPrompt(initialJson: ExtractionResponse, transcript: String): String {
+        val initialJsonString = gson.toJson(initialJson)
+        return """
+You are reviewing a screenshot that shows an image with user-positioned tags (pills/labels) overlaid on it.
+The tags were initially generated by AI and the user has now positioned them on the image by dragging and dropping.
+
+INITIAL AI-GENERATED JSON:
+$initialJsonString
+
+ORIGINAL TRANSCRIPT:
+"$transcript"
+
+YOUR TASK:
+Enhance the existing object-location pairs by analyzing the screenshot. The user has positioned tags on the image to confirm which objects they're referring to.
+
+**DO NOT create new object-location pairs. Only enhance the existing ones.**
+
+For each item in the initial JSON:
+1. Look at where the user positioned the tag in the screenshot
+2. Analyze the visual details of that object in the image
+3. Enhance the data by making it more specific and detailed
+
+IMPORTANT: Respond ONLY with valid JSON. Do not include any explanatory text.
+
+Output format (strict JSON):
+{
+  "items": [
+    {
+      "object": "string",
+      "location": "string",
+      "object_attribute": "string or null",
+      "location_parent": "string or null"
+    }
+  ]
+}
+
+Enhancement Rules:
+1. **Keep the SAME NUMBER of items** - do not add or remove items
+2. **Enhance "object"**: Make it more specific based on visual details (e.g., "laptop" → "MacBook Pro", "keys" → "car keys")
+3. **Enhance "location"**: Add visual context (e.g., "table" → "wooden dining table", "drawer" → "top kitchen drawer")
+4. **Add "object_attribute"**: Describe visual characteristics that help identify the item (e.g., "red color", "large rectangular", "silver metal", "black leather")
+5. **Keep "location_parent" as-is**: Do not modify this field. User will select it in the review screen.
+6. **Use visual evidence**: Only include details you can actually see in the screenshot
+
+JSON response:
+""".trimIndent()
+    }
+
+    /**
+     * Helper function to convert Bitmap to PNG ByteArray for multimodal input
+     */
+    private fun Bitmap.toPngByteArray(): ByteArray {
+        val stream = ByteArrayOutputStream()
+        this.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        return stream.toByteArray()
     }
 
     /**

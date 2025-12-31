@@ -136,7 +136,32 @@ class GemmaDownloadWorker(
                 // Check if request was successful
                 if (responseCode != HttpURLConnection.HTTP_OK &&
                     responseCode != HttpURLConnection.HTTP_PARTIAL) {
-                    throw IOException("HTTP error code: $responseCode")
+
+                    // Capture error details from HuggingFace
+                    val errorMessage = try {
+                        connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "No error details"
+                    } catch (e: Exception) {
+                        "Could not read error: ${e.message}"
+                    }
+
+                    Log.e(TAG, "HTTP Error $responseCode: $errorMessage")
+
+                    // Provide user-friendly error message for common cases
+                    val userMessage = when (responseCode) {
+                        HttpURLConnection.HTTP_FORBIDDEN -> {
+                            "Access denied (403). Please ensure you have accepted the model license at:\n" +
+                            "https://huggingface.co/google/gemma-3n-E2B-it-litert-lm\n" +
+                            "Log in with the same HuggingFace account you used to authenticate in this app."
+                        }
+                        HttpURLConnection.HTTP_UNAUTHORIZED -> {
+                            "Authentication failed (401). Please sign in to HuggingFace again."
+                        }
+                        else -> {
+                            "HTTP error code: $responseCode"
+                        }
+                    }
+
+                    throw IOException(userMessage)
                 }
 
                 // Handle Content-Range header for resume

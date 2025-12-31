@@ -7,12 +7,12 @@ plugins {
 
 android {0
     namespace = "com.whereikept.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.whereikept.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 

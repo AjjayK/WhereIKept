@@ -1,221 +1,416 @@
-# Where I Kept - Android App
+# WhereIKept - Personal Memory Assistant
 
-A personal memory assistant Android app that helps you remember where you stored your belongings. Record yourself while organizing, and the app will extract and store object-location information for easy retrieval later.
+A privacy-focused Android app that helps you remember where you stored your belongings using voice recording, image capture, and on-device AI.
+
+## What It Does
+
+WhereIKept lets you record yourself while organizing items ("I'm putting my keys in the kitchen drawer"), captures a photo of the location, and automatically extracts object-location pairs using AI. Later, you can search to find where you stored anything.
+
+**Key Principle**: All AI processing happens on your device. No cloud dependency, no internet required (except for initial model download).
 
 ## Features
 
-### 🎤 Voice Recording
-- Record yourself while organizing ("I'm putting my keys in the kitchen drawer")
-- Automatic speech-to-text transcription using Android's built-in speech recognition
-- Real-time partial results display while speaking
+### Enhanced Capture Workflow
+- **Voice Recording** with real-time audio visualization and duration tracking
+- **Speech-to-Text** using Whisper.cpp (tiny model, 74 MB) running entirely on-device
+- **Image Capture** of storage locations with camera integration
+- **AI-Powered Extraction** using Gemma 3N E2B (~3 GB) - Google's latest edge-optimized multimodal LLM
+- **Interactive Tag Editing** with draggable overlays on captured images
+- **Manual Tag Entry** as fallback or for manual additions
 
-### 🤖 LLM-Powered Extraction
-- Extracts object-location pairs from transcribed text using a local LLM
-- Supports **Ollama** (local) or **OpenAI-compatible** APIs
-- Fallback pattern matching when LLM is unavailable
+### Smart Search
+- **Full-Text Search** powered by Room FTS4 (Full-Text Search)
+- **Natural Language Queries** with LLM-generated responses
+- Search by object name, location, description, or attributes
 
-### 🔍 Smart Search
-- Full-text search across all stored items
-- LLM-generated natural language responses to queries
-- Search by object name, location, or description
+### Model Download System
+- **In-App Download** of Gemma 3N model from HuggingFace
+- **OAuth Authentication** for gated models (via AppAuth)
+- **Progress Tracking** with speed, percentage, and ETA
+- **Resume Capability** for interrupted downloads
+- **Background Download** with WorkManager and foreground service notifications
 
-### 📋 Manual Entry
-- Add items manually when voice recording isn't convenient
-- Optional notes/description field
-
-### 💾 Local Storage
-- All data stored locally using Room database with FTS4 (Full-Text Search)
-- No cloud dependency for basic functionality
-- Fast, efficient querying
+### Privacy & Offline-First
+- All AI inference runs **on-device** (Whisper + Gemma 3N)
+- Voice recordings processed locally
+- Data stored in local Room database
+- No telemetry or cloud sync
+- Internet only needed for initial model download
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        UI Layer (Compose)                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
-│  │ RecordScreen│  │SearchScreen │  │ ItemsScreen │             │
-│  └─────────────┘  └─────────────┘  └─────────────┘             │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────┼───────────────────────────────────┐
-│                        ViewModel                                │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   MainViewModel                          │   │
-│  │  - UI State management                                   │   │
-│  │  - Coordinates speech recognition, LLM, and database     │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────┼───────────────────────────────────┐
-│                        Services                                 │
-│  ┌──────────────────┐    ┌──────────────────┐                  │
-│  │ SpeechRecognition│    │    LlmService    │                  │
-│  │      Helper      │    │  (Ollama/OpenAI) │                  │
-│  └──────────────────┘    └──────────────────┘                  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────┼───────────────────────────────────┐
-│                        Data Layer                               │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                   Repository                              │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                              │                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │              Room Database with FTS4                      │  │
-│  │  ┌─────────┐  ┌─────────────┐  ┌─────────────┐          │  │
-│  │  │  Items  │  │  Recordings │  │   Images    │          │  │
-│  │  └─────────┘  └─────────────┘  └─────────────┘          │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    UI Layer (Compose)                    │
+│  • CaptureScreen (9-state workflow)                     │
+│  • SearchScreen, ItemsListScreen, SettingsScreen        │
+│  • MainScreen (tab navigation)                          │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│                  ViewModel Layer (MVVM)                  │
+│  • CaptureViewModel (state machine)                     │
+│  • MainViewModel (search & items)                       │
+│  • GemmaDownloadViewModel (model download)              │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│                   Service/Util Layer                     │
+│  • SpeechRecognitionHelper (Whisper JNI)                │
+│  • LlmService (Gemma 3N via LiteRT-LM)                  │
+│  • HuggingFaceAuthHelper (OAuth)                        │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│                  Repository Layer                        │
+│  • WhereIKeptRepository (data operations)               │
+│  • GemmaDownloadRepository (download management)        │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│                   Data Layer (Room)                      │
+│  • ItemEntity, RecordingEntity, ImageEntity             │
+│  • ItemFts (full-text search)                           │
+│  • DAOs: ItemDao, RecordingDao, ImageDao                │
+└─────────────────────────────────────────────────────────┘
 ```
+
+## Capture Workflow (9 States)
+
+The app uses a state machine to guide users through the capture process:
+
+```
+IDLE → RECORDING → IMAGE_CAPTURE → TRANSCRIBING → ANALYZING
+  → REVIEW_EDITING → SUBMITTING → SUCCESS → [back to IDLE]
+                                      ↓
+                                   ERROR (with retry/skip)
+```
+
+1. **IDLE**: Start recording button
+2. **RECORDING**: Audio capture with visualization (Whisper runs on stop)
+3. **IMAGE_CAPTURE**: Take photo or skip (transcription runs in parallel)
+4. **TRANSCRIBING**: Whisper speech-to-text (if not complete)
+5. **ANALYZING**: Gemma 3N multimodal analysis (text + image)
+6. **REVIEW_EDITING**: Draggable tags on image, manual editing
+7. **SUBMITTING**: Save to database
+8. **SUCCESS**: Confirmation with 3s auto-reset
+9. **ERROR**: Error handling with retry/skip options
+
+## Tech Stack
+
+### Languages & Frameworks
+- **Kotlin** - Primary language
+- **Jetpack Compose** - Modern UI toolkit with Material Design 3
+- **C++** - Whisper.cpp integration via JNI/NDK
+
+### Core Libraries
+- **Architecture**: MVVM with Repository pattern
+- **Async**: Kotlin Coroutines & StateFlow
+- **Database**: Room 2.6.1 with FTS4 full-text search
+- **Navigation**: Compose Navigation
+- **Camera**: CameraX
+- **Image Loading**: Coil Compose
+
+### AI/ML Stack
+- **Speech Recognition**: Whisper.cpp (ggml-tiny.en.bin, 74 MB)
+  - 16kHz mono PCM audio
+  - C++ native library via JNI
+  - 2-3x real-time transcription speed
+
+- **LLM Inference**: LiteRT-LM 0.9.0-alpha01 (Google AI Edge)
+  - Model: Gemma 3N E2B INT4 (~3 GB)
+  - Multimodal support (text + images)
+  - Backend auto-selection (GPU/CPU/NPU)
+  - Entirely on-device
+
+### Download & Auth
+- **WorkManager** - Background model downloads
+- **AppAuth** - OAuth for HuggingFace gated models
+- **Gson** - JSON parsing
+
+### Platform
+- **Min SDK**: API 26 (Android 8.0 Oreo)
+- **Target SDK**: API 35 (Android 15)
+- **Build**: Gradle 8.13.2, Kotlin 2.1.0, CMake 3.22.1
 
 ## Quick Start
 
 ### Prerequisites
+1. Android Studio Hedgehog or later
+2. Android device/emulator with API 26+ (Android 8.0+)
+3. Physical device recommended for best performance
 
-1. **Android Studio** Arctic Fox or later
-2. **Android SDK** 26+ (Android 8.0 Oreo)
-3. **Kotlin** 1.9+
-4. **Android NDK** (install via SDK Manager for Whisper support)
+### Setup
 
-### Setup Steps
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd WhereIKept
+   ```
 
-#### 1. Download Required Models
+2. **Model Setup (Two Options)**
 
-The app uses two AI models that must be downloaded separately (not included due to size):
+   **Option A: In-App Download (Recommended)**
+   - Build and run the app
+   - On first launch, you'll see the model download screen
+   - Sign in to HuggingFace (one-time OAuth)
+   - Download starts automatically (~3 GB)
+   - App ready when download completes
 
-**Whisper Model (Speech-to-Text)** - Required, ~74 MB:
-```bash
-cd app/src/main/assets/
-wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
-```
+   **Option B: Manual Download**
+   - Download Gemma 3N E2B model from [HuggingFace](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm)
+   - Push to device:
+     ```bash
+     adb push gemma-3n-e2b-it-int4.litertlm /sdcard/Android/data/com.whereikept.app/files/models/
+     ```
 
-**Gemma Model (LLM Extraction)** - Required, ~1.5 GB:
-1. Go to: https://www.kaggle.com/models/google/gemma/tfLite/gemma-2b-it-gpu-int4
-2. Sign in and click "Download"
-3. Extract to get `gemma-2b-it-gpu-int4.bin`
-4. Copy to `app/src/main/assets/gemma-2b-it-gpu-int4.bin`
+3. **Build and Run**
+   ```bash
+   ./gradlew :app:installDebug
+   ```
+   Or use Android Studio: **Build → Make Project**
 
-Both models will auto-copy to the app on first launch.
+4. **Grant Permissions**
+   - Microphone (for voice recording)
+   - Camera (for image capture)
+   - Storage (auto-granted for app-specific directories)
 
-#### 2. Build and Run
-
-1. Clone this repository
-2. Place both model files in `app/src/main/assets/`
-3. Open in Android Studio
-4. Sync Gradle files
-5. Build and install on device (physical device recommended)
-6. First launch takes 1-2 minutes to copy models
-7. Grant microphone permission when prompted
-
-### Permissions Required
-
-- **RECORD_AUDIO**: Voice recording and Whisper transcription
-- **CAMERA**: Image capture of storage locations
-- **INTERNET**: Optional (only for future cloud features)
+### First Run
+- First launch takes 1-2 minutes if copying model from assets
+- Grant microphone and camera permissions when prompted
+- Model initialization shows progress in logs
 
 ## Usage
 
 ### Recording Items
-
-1. Tap the **Record** tab
-2. Press the microphone button
+1. Open the **Capture** tab
+2. Tap **Start Recording**
 3. Speak naturally: *"I'm putting my passport in the bedroom closet, top shelf"*
-4. Press stop or wait for automatic detection
-5. The app extracts and saves: **passport** → **bedroom closet, top shelf**
+4. Tap **Stop Recording**
+5. **Capture Image** of the location or skip
+6. Review and edit extracted tags (drag onto image)
+7. Tap **Save & Submit**
 
 ### Finding Items
-
-1. Tap the **Find** tab
+1. Open the **Find** tab
 2. Type or speak your query: *"Where are my keys?"*
-3. View results and LLM-generated response
+3. View results with AI-generated natural language response
 
 ### Managing Items
-
-1. Tap the **Items** tab
+1. Open the **Items** tab
 2. View all stored items
-3. Delete items by tapping the trash icon
-4. Add items manually with the + button
-
-## How It Works
-
-The app uses two AI models running entirely on-device:
-
-1. **Whisper.cpp** (74 MB) - Converts voice recordings to text with high accuracy
-2. **Gemma 2B** (1.5 GB) - Extracts structured data from transcriptions using MediaPipe LLM
-
-When you record: *"I put my passport in the top drawer next to the stapler yesterday"*
-
-The app extracts:
-- **Object**: passport
-- **Location**: top drawer
-- **Nearby**: next to the stapler
-- **Time Hint**: yesterday
-- **Confidence**: 0.92
-
-Everything runs offline with no internet required.
+3. Delete items with trash icon
+4. Add items manually with + button
 
 ## Project Structure
 
 ```
 WhereIKept/
-├── app/
-│   ├── src/main/
-│   │   ├── java/com/whereikept/app/
-│   │   │   ├── data/
-│   │   │   │   ├── Entities.kt      # Room entities
-│   │   │   │   ├── Daos.kt          # Data access objects
-│   │   │   │   ├── Database.kt      # Room database
-│   │   │   │   └── Repository.kt    # Data repository
-│   │   │   ├── ui/
-│   │   │   │   ├── Screens.kt       # Compose UI screens
-│   │   │   │   └── theme/           # Material 3 theme
-│   │   │   ├── viewmodel/
-│   │   │   │   └── MainViewModel.kt # Main ViewModel
-│   │   │   ├── utils/
-│   │   │   │   ├── LlmService.kt    # LLM integration
-│   │   │   │   └── SpeechRecognitionHelper.kt
-│   │   │   ├── MainActivity.kt
-│   │   │   └── WhereIKeptApplication.kt
-│   │   ├── res/
-│   │   │   ├── values/
-│   │   │   │   ├── strings.xml
-│   │   │   │   ├── colors.xml
-│   │   │   │   └── themes.xml
-│   │   │   └── xml/
-│   │   └── AndroidManifest.xml
-│   └── build.gradle.kts
+├── app/src/main/
+│   ├── java/com/whereikept/app/
+│   │   ├── auth/
+│   │   │   └── HuggingFaceAuthHelper.kt       # OAuth for gated models
+│   │   ├── data/
+│   │   │   ├── Database.kt                     # Room database
+│   │   │   ├── Entities.kt                     # Data models
+│   │   │   ├── Daos.kt                         # Data access
+│   │   │   ├── Repository.kt                   # Data repository
+│   │   │   └── GemmaModel.kt                   # Model config
+│   │   ├── repository/
+│   │   │   └── GemmaDownloadRepository.kt      # Download management
+│   │   ├── worker/
+│   │   │   └── GemmaDownloadWorker.kt          # Background downloads
+│   │   ├── viewmodel/
+│   │   │   ├── CaptureViewModel.kt             # Capture state machine
+│   │   │   ├── CaptureModels.kt                # Capture data models
+│   │   │   ├── MainViewModel.kt                # Search & items
+│   │   │   └── GemmaDownloadViewModel.kt       # Download UI state
+│   │   ├── ui/
+│   │   │   ├── CaptureScreen.kt                # Workflow states 1-5
+│   │   │   ├── CaptureScreenPart2.kt           # Workflow states 6-9
+│   │   │   ├── Screens.kt                      # Navigation & legacy screens
+│   │   │   ├── screens/
+│   │   │   │   └── ModelDownloadScreen.kt      # Model download UI
+│   │   │   ├── components/
+│   │   │   │   └── GemmaModelDownloadButton.kt # Download button
+│   │   │   └── theme/                          # Material Design 3
+│   │   ├── utils/
+│   │   │   ├── LlmService.kt                   # Gemma 3N integration
+│   │   │   ├── LibWhisper.kt                   # Whisper JNI wrapper
+│   │   │   └── SpeechRecognitionHelper.kt      # Audio recording
+│   │   ├── MainActivity.kt
+│   │   └── WhereIKeptApplication.kt
+│   ├── cpp/
+│   │   ├── whisper.cpp/                        # Git submodule
+│   │   ├── whisper_jni.cpp                     # JNI bridge
+│   │   └── CMakeLists.txt                      # Native build
+│   ├── res/                                    # Resources
+│   └── AndroidManifest.xml
 ├── build.gradle.kts
-├── settings.gradle.kts
-└── README.md
+├── README.md                                   # This file
+├── DEVELOPMENT.md                              # Developer guide
+├── IMPLEMENTATION_SUMMARY.md                   # Enhanced workflow details
+├── QUICK_START_GUIDE.md                        # Testing guide
+└── GEMMA_DOWNLOAD_IMPLEMENTATION.md            # Download feature docs
 ```
 
-## Future Enhancements
+## Data Model
 
-- [ ] **Image capture**: Take photos of storage locations
-- [ ] **Image analysis**: Use vision LLM to describe what's in images
-- [ ] **Voice queries**: Ask questions using voice
-- [ ] **Categories**: Organize items by room or category
-- [ ] **Reminders**: Get reminded where things are based on context
-- [ ] **Backup/Sync**: Cloud backup and multi-device sync
-- [ ] **Widgets**: Home screen widgets for quick recording
-- [ ] **Wear OS**: Companion app for smartwatches
+### ItemEntity (Database)
+```kotlin
+{
+  id: Long,
+  objectName: String,           // "keys"
+  location: String,             // "kitchen drawer"
+  description: String,          // Additional context
+  objectAttribute: String?,     // "red", "metal"
+  locationParent: String?,      // "home", "office"
+  imagePath: String?,           // Original image URI
+  taggedImagePath: String?,     // Image with tag overlays
+  timestamp: Long,
+  sourceType: String            // "voice", "image", "manual"
+}
+```
 
-## Tech Stack
+## How It Works
 
-- **Language**: Kotlin
-- **UI**: Jetpack Compose with Material 3
-- **Database**: Room with FTS4
-- **Architecture**: MVVM with StateFlow
-- **Speech**: Android SpeechRecognizer
-- **Networking**: OkHttp
-- **JSON**: Gson
+### Voice Recording → Transcription
+1. User records voice: "I put my passport in the bedroom closet"
+2. Audio saved as 16kHz mono PCM WAV file
+3. Whisper.cpp transcribes to text (runs in background while user captures image)
+
+### Multimodal AI Extraction
+4. Gemma 3N receives both transcript + captured image
+5. LLM extracts structured data:
+   ```json
+   {
+     "items": [
+       {
+         "object": "passport",
+         "location": "bedroom closet",
+         "object_attribute": "travel document",
+         "location_parent": "home"
+       }
+     ]
+   }
+   ```
+
+### Interactive Review
+6. Tags displayed as draggable chips on image
+7. User can:
+   - Drag tags to position them on the image
+   - Edit tag text
+   - Add new tags manually
+   - Delete incorrect tags
+
+### Database Storage
+8. Each tag saved as ItemEntity
+9. Full-text search index updated (FTS4)
+10. Image and recording metadata preserved
+
+## Performance
+
+### Model Loading (First Time)
+- Whisper: ~2-5 seconds
+- Gemma 3N: ~3-8 seconds
+
+### Inference Speed (Pixel 6)
+- Whisper transcription: 2-3x real-time (3s audio → 6-9s processing)
+- Gemma extraction: 1-4 seconds per transcription
+- Gemma performance:
+  - GPU: 23.3 tokens/sec (OpenCL)
+  - CPU: 17.6 tokens/sec (XNNPACK)
+  - NPU: 50-80+ tokens/sec (Qualcomm QNN, if available)
+
+### Storage
+- APK: ~200 MB (without models)
+- Whisper model: 74 MB
+- Gemma model: ~3 GB
+- Database: Grows with usage (~100 KB per 1000 items)
+
+## Documentation
+
+- **[README.md](README.md)** (this file) - Project overview and quick start
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Technical details, model setup, troubleshooting
+- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Enhanced workflow architecture
+- **[QUICK_START_GUIDE.md](QUICK_START_GUIDE.md)** - Testing guide with step-by-step flows
+- **[GEMMA_DOWNLOAD_IMPLEMENTATION.md](GEMMA_DOWNLOAD_IMPLEMENTATION.md)** - Model download feature guide
+
+## Troubleshooting
+
+### "Model NOT FOUND" Error
+- Ensure Gemma model is downloaded via in-app download
+- Or manually push model to device storage
+- Check logs for model initialization status
+
+### Whisper Transcription Fails
+- Verify Android NDK is installed (SDK Manager → SDK Tools → NDK)
+- Check microphone permission granted
+- Ensure audio recording isn't too short (< 1 second)
+
+### Camera Not Working
+- Grant camera permission in Settings
+- Check FileProvider configuration in AndroidManifest.xml
+- Verify external storage is accessible
+
+### LLM Extraction Returns Empty
+- Check Logcat for JSON parsing errors
+- Ensure transcript has clear object-location phrases
+- Try manual tag entry as fallback
+
+### Download Fails
+- Check internet connection
+- Verify HuggingFace OAuth is configured (see GEMMA_DOWNLOAD_IMPLEMENTATION.md)
+- Try canceling and restarting download
+
+For detailed troubleshooting, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Privacy
+
+WhereIKept is designed with privacy as a core principle:
+
+- All AI processing runs on your device
+- No data sent to cloud servers
+- No telemetry or analytics
+- Voice recordings and images stored locally
+- Internet only used for initial model download
+- No account required (except HuggingFace for model download)
+
+## Requirements
+
+- Android 8.0 (API 26) or higher
+- 4+ GB storage space (for AI models)
+- 2+ GB RAM recommended
+- Microphone for voice recording
+- Camera for image capture
 
 ## License
 
-MIT License - Feel free to use, modify, and distribute.
+MIT License - See LICENSE file for details
 
 ## Contributing
 
-Contributions welcome! Please open an issue or pull request.
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## Acknowledgments
+
+- [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) by Georgi Gerganov - On-device speech recognition
+- [Google Gemma](https://ai.google.dev/gemma) - Lightweight LLM for edge devices
+- [LiteRT-LM](https://github.com/google-ai-edge/litert-lm) - Google AI Edge inference framework
+- [AppAuth-Android](https://github.com/openid/AppAuth-Android) - OAuth library
+
+## Support
+
+For issues, questions, or feature requests:
+- Check existing documentation files
+- Review Logcat logs for errors
+- Open an issue on GitHub
+
+---
+
+**Built with privacy and offline-first principles. Your data never leaves your device.**

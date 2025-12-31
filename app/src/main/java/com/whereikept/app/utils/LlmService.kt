@@ -422,6 +422,13 @@ JSON response:
         }
     }
 
+    /**
+     * Check if model is downloaded (for use with download flow)
+     */
+    fun isModelDownloaded(): Boolean {
+        return findModelFile() != null
+    }
+
     private fun findModelFile(): File? {
         val candidateDirs = listOfNotNull(
             context.getExternalFilesDir(MODEL_DIR_NAME),  // Check external files/models/ first
@@ -458,6 +465,7 @@ JSON response:
             }
         }
 
+        // Check for named models in top-level directories
         val namedMatch = candidateDirs
             .asSequence()
             .flatMap { dir -> MODEL_NAMES.asSequence().map { File(dir, it) } }
@@ -467,14 +475,34 @@ JSON response:
             return namedMatch
         }
 
+        // Helper function to recursively search for model files
+        fun searchRecursively(dir: File, maxDepth: Int = 3, currentDepth: Int = 0): File? {
+            if (currentDepth > maxDepth) return null
+
+            // First, check files in current directory
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile &&
+                    MODEL_EXTENSIONS.any { file.name.endsWith(it, ignoreCase = true) } &&
+                    !file.name.startsWith("ggml-", ignoreCase = true)) {
+                    return file
+                }
+            }
+
+            // Then search subdirectories
+            dir.listFiles()?.forEach { subDir ->
+                if (subDir.isDirectory) {
+                    searchRecursively(subDir, maxDepth, currentDepth + 1)?.let { return it }
+                }
+            }
+
+            return null
+        }
+
+        // Search recursively in candidate directories (up to 3 levels deep)
         return candidateDirs
             .asSequence()
-            .flatMap { dir -> dir.listFiles()?.asSequence() ?: emptySequence() }
-            .firstOrNull { file ->
-                file.isFile &&
-                MODEL_EXTENSIONS.any { file.name.endsWith(it, ignoreCase = true) } &&
-                !file.name.startsWith("ggml-", ignoreCase = true) // Exclude whisper models
-            }
+            .mapNotNull { dir -> searchRecursively(dir) }
+            .firstOrNull()
     }
 
     /**

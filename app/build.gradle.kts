@@ -21,6 +21,9 @@ android {0
             useSupportLibrary = true
         }
 
+        // AppAuth redirect scheme for OAuth
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.whereikept.app"
+
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
         }
@@ -138,6 +141,15 @@ dependencies {
 
     // JSON parsing for LLM responses
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // WorkManager for background model downloads
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // AppAuth for HuggingFace OAuth (gated models)
+    implementation("net.openid:appauth:0.11.1")
+
+    // Browser support for OAuth
+    implementation("androidx.browser:browser:1.7.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

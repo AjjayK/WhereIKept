@@ -1,6 +1,7 @@
 package com.whereikept.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
@@ -16,12 +17,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.whereikept.app.ui.MainScreen
+import com.whereikept.app.ui.screens.ModelDownloadScreen
 import com.whereikept.app.ui.theme.WhereIKeptTheme
+import com.whereikept.app.viewmodel.GemmaDownloadViewModel
 import com.whereikept.app.viewmodel.MainViewModel
 
 class MainActivity : ComponentActivity() {
-    
+
     private val viewModel: MainViewModel by viewModels()
+    private val gemmaDownloadViewModel: GemmaDownloadViewModel by viewModels()
     
     private val requiredPermissions = arrayOf(
         Manifest.permission.RECORD_AUDIO,
@@ -43,28 +47,46 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         checkAndRequestPermissions()
-        
+
         setContent {
             WhereIKeptTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    var permissionsGranted by remember { 
-                        mutableStateOf(hasRequiredPermissions()) 
+                    var permissionsGranted by remember {
+                        mutableStateOf(hasRequiredPermissions())
                     }
-                    
-                    if (permissionsGranted) {
-                        MainScreen(viewModel = viewModel)
-                    } else {
-                        PermissionRequestScreen(
-                            onRequestPermissions = {
-                                checkAndRequestPermissions()
-                                permissionsGranted = hasRequiredPermissions()
-                            }
-                        )
+                    var showDownloadScreen by remember {
+                        mutableStateOf(!gemmaDownloadViewModel.isModelReady())
+                    }
+
+                    when {
+                        !permissionsGranted -> {
+                            PermissionRequestScreen(
+                                onRequestPermissions = {
+                                    checkAndRequestPermissions()
+                                    permissionsGranted = hasRequiredPermissions()
+                                }
+                            )
+                        }
+                        showDownloadScreen -> {
+                            ModelDownloadScreen(
+                                onBackClick = {
+                                    // User can close the app if they don't want to download
+                                    finish()
+                                },
+                                onDownloadComplete = {
+                                    showDownloadScreen = false
+                                },
+                                viewModel = gemmaDownloadViewModel
+                            )
+                        }
+                        else -> {
+                            MainScreen(viewModel = viewModel)
+                        }
                     }
                 }
             }
@@ -87,6 +109,11 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         // Note: SpeechHelper cleanup is now handled by CaptureViewModel.onCleared()

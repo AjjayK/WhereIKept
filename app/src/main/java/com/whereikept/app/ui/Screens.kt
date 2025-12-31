@@ -1,5 +1,7 @@
 package com.whereikept.app.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -12,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -669,6 +672,8 @@ private fun DetailField(
 
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -685,7 +690,10 @@ fun SettingsScreen() {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { /* TODO: Navigate to Privacy Policy */ }
+                .clickable {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://drive.google.com/file/d/1K_2WOTwlOMZy57GTtVRl3EEWD7nMyBgZ/view?usp=drive_link"))
+                    context.startActivity(intent)
+                }
         ) {
             Row(
                 modifier = Modifier
@@ -723,7 +731,10 @@ fun SettingsScreen() {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { /* TODO: Navigate to Terms of Service */ }
+                .clickable {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://drive.google.com/file/d/1COrHd5Zpi2id7ol4ZLe_S3nDAmNdv-8c/view?usp=drive_link"))
+                    context.startActivity(intent)
+                }
         ) {
             Row(
                 modifier = Modifier

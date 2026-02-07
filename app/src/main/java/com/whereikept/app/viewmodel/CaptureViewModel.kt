@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.whereikept.app.analytics.AnalyticsService
 import com.whereikept.app.data.*
 import com.whereikept.app.utils.SpeechRecognitionHelper
 import com.whereikept.app.utils.LlmService
@@ -33,6 +34,13 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     val speechHelper = SpeechRecognitionHelper(application)
     private val llmService = LlmService.getInstance(application)
 
+    // Wire analytics repository to speech helper for Whisper metrics
+    private val analyticsRepo = AnalyticsRepository(
+        context = application,
+        database = database,
+        analyticsService = AnalyticsService.getInstance(application)
+    )
+
     // UI State
     private val _captureUiState = MutableStateFlow(CaptureUiState())
     val captureUiState: StateFlow<CaptureUiState> = _captureUiState.asStateFlow()
@@ -41,6 +49,9 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
+        // Wire analytics to speech helper
+        speechHelper.analyticsRepository = analyticsRepo
+
         // Initialize speech helper on background thread
         // LLM will be initialized lazily when first needed
         viewModelScope.launch(Dispatchers.IO) {

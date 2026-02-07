@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import com.whereikept.app.data.AnalyticsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -54,6 +55,9 @@ class SpeechRecognitionHelper(private val context: Context) {
     // Whisper model for transcription
     private var whisper: LibWhisper? = null
     private var isWhisperInitialized = false
+
+    // Analytics integration
+    var analyticsRepository: AnalyticsRepository? = null
 
     // Audio recording settings
     private val sampleRate = 16000 // 16kHz for speech
@@ -436,6 +440,19 @@ class SpeechRecognitionHelper(private val context: Context) {
             Log.i(TAG, "Calling whisper.transcribeFromWav() with 60s timeout...")
             Log.i(TAG, "NOTE: First-time transcription may take 30-60 seconds on mobile devices")
             Log.i(TAG, "Check logcat filter 'WHISPER_JNI' for native library progress")
+
+            // Start metrics collection
+            val metricsCollector = InferenceMetricsCollector.start(
+                modelType = "whisper",
+                modelName = "whisper-tiny",
+                operationType = "audio_transcription",
+                hadImage = false,
+                audioDurationSec = audioDurationSeconds.toFloat(),
+                acceleratorUsed = "cpu"
+            )
+            val resourceMonitor = ResourceMonitor.start(context)
+            resourceMonitor.startMonitoring()
+
             val transcriptionStartTime = System.currentTimeMillis()
 
             // Add timeout to prevent hanging (60 seconds for mobile devices)
@@ -450,13 +467,26 @@ class SpeechRecognitionHelper(private val context: Context) {
                 Log.e(TAG, "===========================================")
                 Log.e(TAG, "TRANSCRIPTION TIMEOUT!")
                 Log.e(TAG, "===========================================")
-                Log.e(TAG, "Whisper inference took longer than 30 seconds")
+                Log.e(TAG, "Whisper inference took longer than 60 seconds")
                 Log.e(TAG, "Possible causes:")
                 Log.e(TAG, "  - Native library issue")
                 Log.e(TAG, "  - Model file corrupted")
                 Log.e(TAG, "  - Audio format incompatibility")
                 Log.e(TAG, "  - Device too slow for this model")
                 Log.e(TAG, "===========================================")
+
+                // Log timeout as failed inference
+                val resourceStats = resourceMonitor.stopMonitoring()
+                val metric = metricsCollector.finish(
+                    promptTokens = 0,
+                    outputTokens = 0,
+                    success = false,
+                    errorCode = "TIMEOUT",
+                    resourceStats = resourceStats,
+                    totalMs = transcriptionDuration
+                )
+                scope.launch { analyticsRepository?.logInferenceMetric(metric) }
+
                 return@withContext "Transcription timed out - try a smaller model"
             }
 
@@ -466,6 +496,18 @@ class SpeechRecognitionHelper(private val context: Context) {
             Log.i(TAG, "  Transcription length: ${transcription.length} characters")
             Log.i(TAG, "  Transcription: \"$transcription\"")
             Log.i(TAG, "===========================================")
+
+            // Log successful inference metrics
+            val resourceStats = resourceMonitor.stopMonitoring()
+            val metric = metricsCollector.finish(
+                promptTokens = 0,  // Whisper doesn't have prompt tokens
+                outputTokens = transcription.split("\\s+".toRegex()).size,  // Word count as proxy
+                success = transcription.isNotBlank(),
+                errorCode = if (transcription.isBlank()) "EMPTY_OUTPUT" else null,
+                resourceStats = resourceStats,
+                totalMs = transcriptionDuration
+            )
+            scope.launch { analyticsRepository?.logInferenceMetric(metric) }
 
             if (transcription.isBlank()) {
                 Log.w(TAG, "WARNING: Transcription is empty!")

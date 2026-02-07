@@ -10,16 +10,20 @@ import androidx.room.RoomDatabase
         ItemEntity::class,
         ItemFts::class,
         RecordingEntity::class,
-        ImageEntity::class
+        ImageEntity::class,
+        VersionMetricEntity::class,
+        DeviceMetricEntity::class,
+        InferenceMetricEntity::class
     ],
-    version = 4,  // Added taggedImagePath field to store screenshot with overlaid tags
+    version = 5,  // Added analytics entities for LLM performance tracking
     exportSchema = false
 )
 abstract class WhereIKeptDatabase : RoomDatabase() {
-    
+
     abstract fun itemDao(): ItemDao
     abstract fun recordingDao(): RecordingDao
     abstract fun imageDao(): ImageDao
+    abstract fun metricsDao(): MetricsDao
     
     companion object {
         @Volatile

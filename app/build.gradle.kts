@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 android {0
@@ -13,8 +14,8 @@ android {0
         applicationId = "com.whereikept.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -58,6 +59,7 @@ android {0
     buildFeatures {
         viewBinding = true
         compose = true
+        buildConfig = true
     }
     externalNativeBuild {
         cmake {
@@ -135,6 +137,11 @@ dependencies {
     
     // DataStore for preferences
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // Firebase Analytics (BOM manages versions)
+    implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-installations")
 
     // LiteRT-LM for on-device LLM inference
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.9.0-alpha01")

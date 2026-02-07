@@ -16,6 +16,7 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Conversation
+import com.whereikept.app.data.AnalyticsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.catch
@@ -50,6 +51,17 @@ class LlmService private constructor(private val context: Context) {
     private val gson = Gson()
     private val initMutex = Mutex()
 
+    // Analytics integration
+    private var analyticsRepository: AnalyticsRepository? = null
+
+    /**
+     * Set the analytics repository for inference metrics collection.
+     * Call this after creating the repository in MainActivity.
+     */
+    fun setAnalyticsRepository(repository: AnalyticsRepository) {
+        analyticsRepository = repository
+    }
+
     companion object {
         private const val TAG = "LlmService"
 
@@ -80,10 +92,11 @@ class LlmService private constructor(private val context: Context) {
         private val MODEL_EXTENSIONS = listOf(".litertlm", ".task", ".bin", ".tflite")
 
         // Default LLM configuration (from Google AI Edge Gallery)
-        private const val DEFAULT_MAX_TOKEN = 8192  // Gemma 3N E2B supports 32K context, using 8K for output
-        private const val DEFAULT_TOPK = 64
-        private const val DEFAULT_TOPP = 0.95
-        private const val DEFAULT_TEMPERATURE = 1.0
+        // Internal visibility allows VersionMetricsCollector to read these for analytics
+        internal const val DEFAULT_MAX_TOKEN = 8192  // Gemma 3N E2B supports 32K context, using 8K for output
+        internal const val DEFAULT_TOPK = 64
+        internal const val DEFAULT_TOPP = 0.95
+        internal const val DEFAULT_TEMPERATURE = 1.0
     }
 
     /**
@@ -188,6 +201,17 @@ class LlmService private constructor(private val context: Context) {
                 }
             }
 
+            // Start metrics collection
+            val metricsCollector = InferenceMetricsCollector.start(
+                modelType = "gemma",
+                modelName = "gemma-3n-e2b-it-int4",
+                operationType = "voice_extraction",
+                hadImage = false,
+                acceleratorUsed = "cpu"
+            )
+            val resourceMonitor = ResourceMonitor.start(context)
+            resourceMonitor.startMonitoring()
+
             try {
                 val prompt = buildExtractionPrompt(transcription)
                 Log.i(TAG, "Generated prompt (${prompt.length} chars)")
@@ -209,15 +233,21 @@ class LlmService private constructor(private val context: Context) {
                     Log.i(TAG, "Calling LiteRT-LM inference...")
                     val startTime = System.currentTimeMillis()
 
+                    metricsCollector.startPrefill()
                     val userMessage = Message.of(prompt)
 
                     // Collect streaming response into a single string
+                    var firstTokenRecorded = false
                     val response = conversation.sendMessageAsync(userMessage)
                         .catch { e ->
                             Log.e(TAG, "Error during inference: ${e.message}", e)
                             throw e
                         }
                         .fold(StringBuilder()) { acc, message ->
+                            if (!firstTokenRecorded) {
+                                metricsCollector.recordFirstToken()
+                                firstTokenRecorded = true
+                            }
                             acc.append(message.toString())
                             acc
                         }
@@ -242,6 +272,16 @@ class LlmService private constructor(private val context: Context) {
                     }
                     Log.i(TAG, "===========================================")
 
+                    // Log inference metrics
+                    val resourceStats = resourceMonitor.stopMonitoring()
+                    val metric = metricsCollector.finish(
+                        promptTokens = prompt.length / 4,  // Approximate token count
+                        outputTokens = response.length / 4,
+                        success = true,
+                        resourceStats = resourceStats
+                    )
+                    analyticsRepository?.logInferenceMetric(metric)
+
                     return@withContext extractionResponse
                 }
 
@@ -249,6 +289,18 @@ class LlmService private constructor(private val context: Context) {
                 Log.e(TAG, "ERROR during extraction: ${e.message}", e)
                 Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
                 Log.e(TAG, "===========================================")
+
+                // Log failed inference metrics
+                val resourceStats = resourceMonitor.stopMonitoring()
+                val metric = metricsCollector.finish(
+                    promptTokens = 0,
+                    outputTokens = 0,
+                    success = false,
+                    errorCode = ErrorClassifier.classifyError(e),
+                    resourceStats = resourceStats
+                )
+                analyticsRepository?.logInferenceMetric(metric)
+
                 return@withContext ExtractionResponse(emptyList())
             }
         }
@@ -529,16 +581,29 @@ JSON response:
                 }
             }
 
+            // Load image bitmap first (before starting metrics)
+            val bitmap = loadBitmapFromUri(imageUri)
+            if (bitmap == null) {
+                Log.e(TAG, "Failed to load image, falling back to text-only extraction")
+                return@withContext extractItemsFromTranscription(transcript)
+            }
+
+            val imageResolution = "${bitmap.width}x${bitmap.height}"
+            Log.i(TAG, "Image loaded: $imageResolution")
+
+            // Start metrics collection
+            val metricsCollector = InferenceMetricsCollector.start(
+                modelType = "gemma",
+                modelName = "gemma-3n-e2b-it-int4",
+                operationType = "image_extraction",
+                hadImage = true,
+                imageResolution = imageResolution,
+                acceleratorUsed = "cpu"
+            )
+            val resourceMonitor = ResourceMonitor.start(context)
+            resourceMonitor.startMonitoring()
+
             try {
-                // Load image bitmap
-                val bitmap = loadBitmapFromUri(imageUri)
-                if (bitmap == null) {
-                    Log.e(TAG, "Failed to load image, falling back to text-only extraction")
-                    return@withContext extractItemsFromTranscription(transcript)
-                }
-
-                Log.i(TAG, "Image loaded: ${bitmap.width}x${bitmap.height}")
-
                 val prompt = buildMultimodalExtractionPrompt(transcript)
                 Log.i(TAG, "Generated multimodal prompt (${prompt.length} chars)")
 
@@ -555,18 +620,25 @@ JSON response:
                     Log.i(TAG, "Calling LiteRT-LM with image + text...")
                     val startTime = System.currentTimeMillis()
 
+                    metricsCollector.startPrefill()
+
                     // Create multimodal message with image and text
                     val contents = mutableListOf<Content>()
                     contents.add(Content.ImageBytes(bitmap.toPngByteArray()))
                     contents.add(Content.Text(prompt))
                     val userMessage = Message.of(contents)
 
+                    var firstTokenRecorded = false
                     val response = conversation.sendMessageAsync(userMessage)
                         .catch { e ->
                             Log.e(TAG, "Error during multimodal inference: ${e.message}", e)
                             throw e
                         }
                         .fold(StringBuilder()) { acc, message ->
+                            if (!firstTokenRecorded) {
+                                metricsCollector.recordFirstToken()
+                                firstTokenRecorded = true
+                            }
                             acc.append(message.toString())
                             acc
                         }
@@ -591,12 +663,34 @@ JSON response:
                     }
                     Log.i(TAG, "===========================================")
 
+                    // Log inference metrics
+                    val resourceStats = resourceMonitor.stopMonitoring()
+                    val metric = metricsCollector.finish(
+                        promptTokens = prompt.length / 4,
+                        outputTokens = response.length / 4,
+                        success = true,
+                        resourceStats = resourceStats
+                    )
+                    analyticsRepository?.logInferenceMetric(metric)
+
                     return@withContext extractionResponse
                 }
 
             } catch (e: Exception) {
                 Log.e(TAG, "ERROR during multimodal extraction: ${e.message}", e)
                 Log.e(TAG, "Falling back to text-only extraction")
+
+                // Log failed inference metrics
+                val resourceStats = resourceMonitor.stopMonitoring()
+                val metric = metricsCollector.finish(
+                    promptTokens = 0,
+                    outputTokens = 0,
+                    success = false,
+                    errorCode = ErrorClassifier.classifyError(e),
+                    resourceStats = resourceStats
+                )
+                analyticsRepository?.logInferenceMetric(metric)
+
                 // Fallback to text-only extraction if image processing fails
                 return@withContext extractItemsFromTranscription(transcript)
             }
@@ -718,6 +812,20 @@ JSON response:
                 }
             }
 
+            val imageResolution = "${screenshotBitmap.width}x${screenshotBitmap.height}"
+
+            // Start metrics collection
+            val metricsCollector = InferenceMetricsCollector.start(
+                modelType = "gemma",
+                modelName = "gemma-3n-e2b-it-int4",
+                operationType = "optimization",
+                hadImage = true,
+                imageResolution = imageResolution,
+                acceleratorUsed = "cpu"
+            )
+            val resourceMonitor = ResourceMonitor.start(context)
+            resourceMonitor.startMonitoring()
+
             try {
                 val prompt = buildOptimizationPrompt(initialJson, transcript)
                 Log.i(TAG, "Generated optimization prompt (${prompt.length} chars)")
@@ -735,18 +843,25 @@ JSON response:
                     Log.i(TAG, "Calling LiteRT-LM with screenshot for optimization...")
                     val startTime = System.currentTimeMillis()
 
+                    metricsCollector.startPrefill()
+
                     // Create multimodal message with screenshot and prompt
                     val contents = mutableListOf<Content>()
                     contents.add(Content.ImageBytes(screenshotBitmap.toPngByteArray()))
                     contents.add(Content.Text(prompt))
                     val userMessage = Message.of(contents)
 
+                    var firstTokenRecorded = false
                     val response = conversation.sendMessageAsync(userMessage)
                         .catch { e ->
                             Log.e(TAG, "Error during optimization inference: ${e.message}", e)
                             throw e
                         }
                         .fold(StringBuilder()) { acc, message ->
+                            if (!firstTokenRecorded) {
+                                metricsCollector.recordFirstToken()
+                                firstTokenRecorded = true
+                            }
                             acc.append(message.toString())
                             acc
                         }
@@ -771,12 +886,34 @@ JSON response:
                     }
                     Log.i(TAG, "===========================================")
 
+                    // Log inference metrics
+                    val resourceStats = resourceMonitor.stopMonitoring()
+                    val metric = metricsCollector.finish(
+                        promptTokens = prompt.length / 4,
+                        outputTokens = response.length / 4,
+                        success = true,
+                        resourceStats = resourceStats
+                    )
+                    analyticsRepository?.logInferenceMetric(metric)
+
                     return@withContext optimizedResponse
                 }
 
             } catch (e: Exception) {
                 Log.e(TAG, "ERROR during JSON optimization: ${e.message}", e)
                 Log.e(TAG, "Falling back to original JSON")
+
+                // Log failed inference metrics
+                val resourceStats = resourceMonitor.stopMonitoring()
+                val metric = metricsCollector.finish(
+                    promptTokens = 0,
+                    outputTokens = 0,
+                    success = false,
+                    errorCode = ErrorClassifier.classifyError(e),
+                    resourceStats = resourceStats
+                )
+                analyticsRepository?.logInferenceMetric(metric)
+
                 return@withContext initialJson
             }
         }

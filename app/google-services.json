@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1016669444104",
+    "project_id": "whereikept",
+    "storage_bucket": "whereikept.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016669444104:android:c8018db3e69d0593a899bd",
+        "android_client_info": {
+          "package_name": "com.whereikept.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbcV9-ZWuvRqgjp-2Zb-hKgV6pTZCkyr8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

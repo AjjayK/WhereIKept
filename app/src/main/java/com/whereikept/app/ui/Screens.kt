@@ -30,7 +30,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.whereikept.app.data.AnalyticsRepository
 import com.whereikept.app.data.ItemEntity
+import com.whereikept.app.ui.screens.AnalyticsStatsScreen
+import com.whereikept.app.ui.viewmodels.AnalyticsViewModel
 import com.whereikept.app.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -43,7 +46,7 @@ private fun formatDuration(millis: Long): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(viewModel: MainViewModel, analyticsViewModel: AnalyticsViewModel? = null) {
     val uiState by viewModel.uiState.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
 
@@ -104,6 +107,12 @@ fun MainScreen(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.Analytics, contentDescription = "Stats") },
+                    label = { Text("Stats") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                     label = { Text("Settings") }
                 )
@@ -152,7 +161,19 @@ fun MainScreen(viewModel: MainViewModel) {
                         showItemDetailDialog = true
                     }
                 )
-                3 -> SettingsScreen()
+                3 -> {
+                    if (analyticsViewModel != null) {
+                        AnalyticsStatsScreen(viewModel = analyticsViewModel)
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Analytics not available", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+                4 -> SettingsScreen(analyticsViewModel = analyticsViewModel)
             }
         }
     }
@@ -671,8 +692,9 @@ private fun DetailField(
 }
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(analyticsViewModel: AnalyticsViewModel? = null) {
     val context = LocalContext.current
+    val analyticsEnabled = analyticsViewModel?.analyticsEnabled?.collectAsState()
 
     Column(
         modifier = Modifier
@@ -686,6 +708,86 @@ fun SettingsScreen() {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 16.dp)
         )
+
+        // Analytics Toggle
+        if (analyticsViewModel != null && analyticsEnabled != null) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Analytics,
+                        contentDescription = "Analytics",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Cloud Analytics",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (analyticsEnabled.value)
+                                "Sending anonymous performance data"
+                            else
+                                "Performance data stored locally only",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = analyticsEnabled.value,
+                        onCheckedChange = { analyticsViewModel.toggleAnalytics(it) }
+                    )
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://forms.gle/avJdqhadd5s8852r6"))
+                    context.startActivity(intent)
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Feedback,
+                    contentDescription = "Feedback",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Send Feedback",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Help us improve WhereIKept",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         Card(
             modifier = Modifier

@@ -101,3 +101,7 @@ app/src/main/assets/*.litertlm
 *gemma*.tflite
 *gemma*.litertlm
 model.task
+BETA_TESTER_ONBOARDING.md
+PLAY_STORE_DESCRIPTION.md
+REDDIT_BETA_MESSAGE.md
+ANALYTICS_PLAN.md

@@ -16,6 +16,8 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.whereikept.app.data.AnalyticsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -159,6 +161,10 @@ class LlmService private constructor(private val context: Context) {
                 Log.i(TAG, "Creating and initializing engine...")
                 val initStartTime = System.currentTimeMillis()
 
+                // Enable benchmark mode to access getBenchmarkInfo() for token counts
+                @OptIn(ExperimentalApi::class)
+                ExperimentalFlags.enableBenchmark = true
+
                 engine = Engine(engineConfig)
                 engine?.initialize()
 
@@ -245,8 +251,14 @@ class LlmService private constructor(private val context: Context) {
                         }
                         .fold(StringBuilder()) { acc, message ->
                             if (!firstTokenRecorded) {
-                                metricsCollector.recordFirstToken()
+                                // Get actual prefill token count from SDK (experimental API)
+                                @OptIn(ExperimentalApi::class)
+                                val prefillTokenCount = conversation.getBenchmarkInfo().lastPrefillTokenCount
+                                metricsCollector.recordFirstToken(prefillTokenCount)
                                 firstTokenRecorded = true
+                            } else {
+                                // Count each subsequent emission as a decode token
+                                metricsCollector.recordDecodeToken()
                             }
                             acc.append(message.toString())
                             acc
@@ -272,11 +284,9 @@ class LlmService private constructor(private val context: Context) {
                     }
                     Log.i(TAG, "===========================================")
 
-                    // Log inference metrics
+                    // Log inference metrics (token counts now calculated internally)
                     val resourceStats = resourceMonitor.stopMonitoring()
                     val metric = metricsCollector.finish(
-                        promptTokens = prompt.length / 4,  // Approximate token count
-                        outputTokens = response.length / 4,
                         success = true,
                         resourceStats = resourceStats
                     )
@@ -285,7 +295,7 @@ class LlmService private constructor(private val context: Context) {
                     return@withContext extractionResponse
                 }
 
-            } catch (e: Exception) {
+            } catch (e: Throwable) {  // Throwable catches both Exception and Error (like OOM)
                 Log.e(TAG, "ERROR during extraction: ${e.message}", e)
                 Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
                 Log.e(TAG, "===========================================")
@@ -293,8 +303,6 @@ class LlmService private constructor(private val context: Context) {
                 // Log failed inference metrics
                 val resourceStats = resourceMonitor.stopMonitoring()
                 val metric = metricsCollector.finish(
-                    promptTokens = 0,
-                    outputTokens = 0,
                     success = false,
                     errorCode = ErrorClassifier.classifyError(e),
                     resourceStats = resourceStats
@@ -591,12 +599,13 @@ JSON response:
             val imageResolution = "${bitmap.width}x${bitmap.height}"
             Log.i(TAG, "Image loaded: $imageResolution")
 
-            // Start metrics collection
+            // Start metrics collection (1 image = 257 tokens)
             val metricsCollector = InferenceMetricsCollector.start(
                 modelType = "gemma",
                 modelName = "gemma-3n-e2b-it-int4",
                 operationType = "image_extraction",
                 hadImage = true,
+                imageCount = 1,  // Single image input
                 imageResolution = imageResolution,
                 acceleratorUsed = "cpu"
             )
@@ -636,8 +645,13 @@ JSON response:
                         }
                         .fold(StringBuilder()) { acc, message ->
                             if (!firstTokenRecorded) {
-                                metricsCollector.recordFirstToken()
+                                // Get actual prefill token count from SDK (experimental API)
+                                @OptIn(ExperimentalApi::class)
+                                val prefillTokenCount = conversation.getBenchmarkInfo().lastPrefillTokenCount
+                                metricsCollector.recordFirstToken(prefillTokenCount)
                                 firstTokenRecorded = true
+                            } else {
+                                metricsCollector.recordDecodeToken()
                             }
                             acc.append(message.toString())
                             acc
@@ -663,11 +677,9 @@ JSON response:
                     }
                     Log.i(TAG, "===========================================")
 
-                    // Log inference metrics
+                    // Log inference metrics (token counts now calculated internally)
                     val resourceStats = resourceMonitor.stopMonitoring()
                     val metric = metricsCollector.finish(
-                        promptTokens = prompt.length / 4,
-                        outputTokens = response.length / 4,
                         success = true,
                         resourceStats = resourceStats
                     )
@@ -676,15 +688,13 @@ JSON response:
                     return@withContext extractionResponse
                 }
 
-            } catch (e: Exception) {
+            } catch (e: Throwable) {  // Throwable catches both Exception and Error (like OOM)
                 Log.e(TAG, "ERROR during multimodal extraction: ${e.message}", e)
                 Log.e(TAG, "Falling back to text-only extraction")
 
                 // Log failed inference metrics
                 val resourceStats = resourceMonitor.stopMonitoring()
                 val metric = metricsCollector.finish(
-                    promptTokens = 0,
-                    outputTokens = 0,
                     success = false,
                     errorCode = ErrorClassifier.classifyError(e),
                     resourceStats = resourceStats
@@ -814,12 +824,13 @@ JSON response:
 
             val imageResolution = "${screenshotBitmap.width}x${screenshotBitmap.height}"
 
-            // Start metrics collection
+            // Start metrics collection (1 screenshot = 257 tokens)
             val metricsCollector = InferenceMetricsCollector.start(
                 modelType = "gemma",
                 modelName = "gemma-3n-e2b-it-int4",
                 operationType = "optimization",
                 hadImage = true,
+                imageCount = 1,  // Screenshot input
                 imageResolution = imageResolution,
                 acceleratorUsed = "cpu"
             )
@@ -859,8 +870,13 @@ JSON response:
                         }
                         .fold(StringBuilder()) { acc, message ->
                             if (!firstTokenRecorded) {
-                                metricsCollector.recordFirstToken()
+                                // Get actual prefill token count from SDK (experimental API)
+                                @OptIn(ExperimentalApi::class)
+                                val prefillTokenCount = conversation.getBenchmarkInfo().lastPrefillTokenCount
+                                metricsCollector.recordFirstToken(prefillTokenCount)
                                 firstTokenRecorded = true
+                            } else {
+                                metricsCollector.recordDecodeToken()
                             }
                             acc.append(message.toString())
                             acc
@@ -886,11 +902,9 @@ JSON response:
                     }
                     Log.i(TAG, "===========================================")
 
-                    // Log inference metrics
+                    // Log inference metrics (token counts now calculated internally)
                     val resourceStats = resourceMonitor.stopMonitoring()
                     val metric = metricsCollector.finish(
-                        promptTokens = prompt.length / 4,
-                        outputTokens = response.length / 4,
                         success = true,
                         resourceStats = resourceStats
                     )
@@ -899,15 +913,13 @@ JSON response:
                     return@withContext optimizedResponse
                 }
 
-            } catch (e: Exception) {
+            } catch (e: Throwable) {  // Throwable catches both Exception and Error (like OOM)
                 Log.e(TAG, "ERROR during JSON optimization: ${e.message}", e)
                 Log.e(TAG, "Falling back to original JSON")
 
                 // Log failed inference metrics
                 val resourceStats = resourceMonitor.stopMonitoring()
                 val metric = metricsCollector.finish(
-                    promptTokens = 0,
-                    outputTokens = 0,
                     success = false,
                     errorCode = ErrorClassifier.classifyError(e),
                     resourceStats = resourceStats

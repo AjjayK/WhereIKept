@@ -105,3 +105,13 @@ BETA_TESTER_ONBOARDING.md
 PLAY_STORE_DESCRIPTION.md
 REDDIT_BETA_MESSAGE.md
 ANALYTICS_PLAN.md
+
+# Development tools and scripts
+export_analytics.sql
+
+# Marketing and design assets
+feature_graphic_template.html
+
+# Additional IDE files
+.idea/deploymentTargetSelector.xml
+MEDIUM_ARTICLE.md

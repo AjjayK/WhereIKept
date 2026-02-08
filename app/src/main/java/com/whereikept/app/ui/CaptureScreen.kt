@@ -237,7 +237,37 @@ fun IdleStateScreen(onStartRecording: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 32.dp)
             )
 
-            Spacer(modifier = Modifier.height(56.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Example phrase
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = Color(0xFF4F46E5).copy(alpha = 0.7f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "\"I'm putting my passport in the bedroom drawer\"",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Modern gradient button
             Button(

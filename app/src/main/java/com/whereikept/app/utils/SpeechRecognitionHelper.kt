@@ -478,8 +478,6 @@ class SpeechRecognitionHelper(private val context: Context) {
                 // Log timeout as failed inference
                 val resourceStats = resourceMonitor.stopMonitoring()
                 val metric = metricsCollector.finish(
-                    promptTokens = 0,
-                    outputTokens = 0,
                     success = false,
                     errorCode = "TIMEOUT",
                     resourceStats = resourceStats,
@@ -500,8 +498,6 @@ class SpeechRecognitionHelper(private val context: Context) {
             // Log successful inference metrics
             val resourceStats = resourceMonitor.stopMonitoring()
             val metric = metricsCollector.finish(
-                promptTokens = 0,  // Whisper doesn't have prompt tokens
-                outputTokens = transcription.split("\\s+".toRegex()).size,  // Word count as proxy
                 success = transcription.isNotBlank(),
                 errorCode = if (transcription.isBlank()) "EMPTY_OUTPUT" else null,
                 resourceStats = resourceStats,

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Debug
 import android.os.PowerManager
 import androidx.annotation.RequiresApi
 import kotlinx.coroutines.CoroutineScope
@@ -16,16 +17,16 @@ import kotlinx.coroutines.launch
 
 /**
  * Real-time resource monitoring during LLM inference
- * Tracks memory, CPU, thermal status, and battery drain
+ * Tracks memory (JVM + native), thermal status, and battery drain
  * Samples every 100ms during inference
  */
 class ResourceMonitor private constructor(private val context: Context) {
 
-    private var startMemMb: Int = 0
-    private var peakMemMb: Int = 0
+    private var peakHeapMb: Int = 0
+    private var peakNativeMb: Int = 0
+    private var peakTotalPssMb: Int = 0
     private var thermalStart: Int = 0
     private var batteryStart: Int = 0
-    private val cpuSamples = mutableListOf<Float>()
 
     private var monitorJob: Job? = null
 
@@ -33,12 +34,14 @@ class ResourceMonitor private constructor(private val context: Context) {
      * Resource statistics collected during inference
      */
     data class ResourceStats(
-        val peakMemMb: Int,
+        val peakMemMb: Int,           // Total PSS (Proportional Set Size) - best overall memory metric
+        val peakHeapMb: Int,          // JVM/Dalvik heap memory
+        val peakNativeMb: Int,        // Native memory (where LLM weights live)
         val thermalStatusStart: Int,
         val thermalStatusEnd: Int,
         val batteryLevelStart: Int,
         val batteryLevelEnd: Int,
-        val cpuUsageAvg: Float
+        val cpuUsageAvg: Float        // Reserved for future use
     )
 
     companion object {
@@ -55,19 +58,21 @@ class ResourceMonitor private constructor(private val context: Context) {
      * Call this before starting inference
      */
     fun startMonitoring() {
-        startMemMb = getCurrentMemoryMb()
-        peakMemMb = startMemMb
+        // Initialize with current memory readings
+        val initialMemory = getDetailedMemory()
+        peakHeapMb = initialMemory.heapMb
+        peakNativeMb = initialMemory.nativeMb
+        peakTotalPssMb = initialMemory.totalPssMb
         thermalStart = getThermalStatus()
         batteryStart = getBatteryLevel()
 
-        // Sample CPU/memory every 100ms during inference
+        // Sample memory every 100ms during inference
         monitorJob = CoroutineScope(Dispatchers.Default).launch {
             while (isActive) {
-                val currentMem = getCurrentMemoryMb()
-                if (currentMem > peakMemMb) {
-                    peakMemMb = currentMem
-                }
-                cpuSamples.add(getCpuUsage())
+                val currentMemory = getDetailedMemory()
+                peakHeapMb = maxOf(peakHeapMb, currentMemory.heapMb)
+                peakNativeMb = maxOf(peakNativeMb, currentMemory.nativeMb)
+                peakTotalPssMb = maxOf(peakTotalPssMb, currentMemory.totalPssMb)
                 delay(100)
             }
         }
@@ -81,22 +86,46 @@ class ResourceMonitor private constructor(private val context: Context) {
         monitorJob?.cancel()
 
         return ResourceStats(
-            peakMemMb = peakMemMb,
+            peakMemMb = peakTotalPssMb,  // Use total PSS as the primary memory metric
+            peakHeapMb = peakHeapMb,
+            peakNativeMb = peakNativeMb,
             thermalStatusStart = thermalStart,
             thermalStatusEnd = getThermalStatus(),
             batteryLevelStart = batteryStart,
             batteryLevelEnd = getBatteryLevel(),
-            cpuUsageAvg = if (cpuSamples.isNotEmpty()) cpuSamples.average().toFloat() else 0f
+            cpuUsageAvg = 0f  // Reserved for future use
         )
     }
 
     /**
-     * Get current app memory usage in MB
+     * Detailed memory breakdown
      */
-    private fun getCurrentMemoryMb(): Int {
-        val runtime = Runtime.getRuntime()
-        val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
-        return usedMemory.toInt()
+    private data class DetailedMemory(
+        val heapMb: Int,      // JVM/Dalvik heap
+        val nativeMb: Int,    // Native allocations (where LLM model weights live)
+        val totalPssMb: Int   // Proportional Set Size - real memory footprint
+    )
+
+    /**
+     * Get detailed memory usage using Debug.MemoryInfo
+     * This captures JVM heap, native memory, and total PSS
+     */
+    private fun getDetailedMemory(): DetailedMemory {
+        return try {
+            val memoryInfo = Debug.MemoryInfo()
+            Debug.getMemoryInfo(memoryInfo)
+
+            DetailedMemory(
+                heapMb = memoryInfo.dalvikPrivateDirty / 1024,  // KB to MB
+                nativeMb = memoryInfo.nativePrivateDirty / 1024,
+                totalPssMb = memoryInfo.totalPss / 1024
+            )
+        } catch (e: Exception) {
+            // Fallback to simple JVM heap measurement
+            val runtime = Runtime.getRuntime()
+            val heapMb = ((runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024).toInt()
+            DetailedMemory(heapMb, 0, heapMb)
+        }
     }
 
     /**
@@ -138,15 +167,4 @@ class ResourceMonitor private constructor(private val context: Context) {
         }
     }
 
-    /**
-     * Get current CPU usage percentage
-     * This is a simplified implementation - returns 0 for now
-     * TODO: Implement proper CPU usage calculation from /proc/stat
-     */
-    private fun getCpuUsage(): Float {
-        // Reading /proc/stat requires complex parsing and tracking between samples
-        // For now, return 0 - can be enhanced later
-        // Full implementation would track user/system/idle times between samples
-        return 0f
-    }
 }

@@ -20,6 +20,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Advertising ID declaration (required for Android 13+) -->
+    <!-- This app does not use advertising ID -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+
     <queries>
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />

@@ -1,245 +1,166 @@
-# Quick Testing Guide - Gemma Model Download
+# WhereIKept - Testing Guide
 
-## ✅ Setup Complete!
+## Prerequisites
 
-All integration steps are done:
-1. ✅ OAuth Client ID added to `HuggingFaceAuthHelper.kt`
-2. ✅ OAuth redirect URI added to `AndroidManifest.xml`
-3. ✅ Navigation integration added to `MainActivity.kt`
-4. ✅ Notification permission added
+1. **Android Studio** Hedgehog or later
+2. **Android Device** with API 26+ (physical device recommended)
+3. **Models on device:**
+   - **Gemma 3N E2B**: Download from [HuggingFace](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm)
+     ```bash
+     adb push gemma-3n-e2b-it-int4.litertlm /sdcard/Android/data/com.whereikept.app/files/models/
+     ```
+   - **Whisper Tiny**: Bundled in assets (auto-copied on first launch)
 
----
+## Build & Run
 
-## 🚀 How to Test
-
-### **First Run Experience:**
-
-1. **Build and install the app**
-   ```bash
-   ./gradlew installDebug
-   ```
-
-2. **Launch the app** - You should see:
-   - Permission request screen (for mic/camera)
-   - Then **ModelDownloadScreen** (since model isn't downloaded)
-
-3. **Download Flow:**
-   - Tap "Download AI Model"
-   - Browser opens for HuggingFace OAuth
-   - Sign in with your HuggingFace account
-   - Accept the Gemma model agreement
-   - Browser redirects back to app
-   - Download starts automatically
-   - Progress bar shows percentage + speed + ETA
-
-4. **During Download:**
-   - See notification in status bar
-   - Progress updates every 200ms
-   - Can cancel with X button
-   - If app is closed, download continues in background
-
-5. **After Download:**
-   - Automatically navigates to main app screen
-   - Model is ready to use
-   - Next app launch skips download screen
-
----
-
-## 🧪 Testing Checklist
-
-### **Test 1: OAuth Flow**
-- [ ] Tap "Download AI Model"
-- [ ] Browser opens HuggingFace login
-- [ ] Sign in successfully
-- [ ] Accept Gemma license
-- [ ] Redirects back to app
-- [ ] Download starts
-
-### **Test 2: Download Progress**
-- [ ] Progress bar shows 0% → 100%
-- [ ] Speed (MB/s) is displayed
-- [ ] ETA updates correctly
-- [ ] Notification shows in status bar
-
-### **Test 3: Download Resume**
-- [ ] Start download
-- [ ] Force-close app mid-download
-- [ ] Reopen app
-- [ ] Tap "Resume Download"
-- [ ] Download continues from where it stopped
-
-### **Test 4: Cancel Download**
-- [ ] Start download
-- [ ] Tap X button
-- [ ] Download stops
-- [ ] Button shows "Download AI Model" again
-
-### **Test 5: Subsequent Launches**
-- [ ] After download completes
-- [ ] Close app
-- [ ] Reopen app
-- [ ] Main screen shows directly (no download screen)
-
----
-
-## 🐛 Common Issues & Solutions
-
-### **Issue 1: OAuth Browser Doesn't Open**
-**Solution:**
-- Check logcat for errors: `adb logcat | grep HuggingFace`
-- Verify client ID is correct in `HuggingFaceAuthHelper.kt`
-- Verify redirect URI in manifest matches HuggingFace app settings
-
-### **Issue 2: Download Doesn't Start**
-**Solution:**
-- Check internet connection
-- Verify HuggingFace URL is accessible
-- Check logcat: `adb logcat | grep GemmaDownloadWorker`
-- Verify storage permission granted
-
-### **Issue 3: "Forbidden" Error**
-**Solution:**
-- You haven't accepted the Gemma license on HuggingFace
-- Go to: https://huggingface.co/google/gemma-3n-E2B-it-litert-lm
-- Click "Agree and access repository"
-- Try download again
-
-### **Issue 4: Download Progress Stuck**
-**Solution:**
-- Check network speed (model is ~3 GB)
-- Wait a few minutes (initial connection can be slow)
-- Check logcat for HTTP errors
-- Cancel and restart download
-
-### **Issue 5: Notification Not Showing**
-**Solution:**
-- Grant POST_NOTIFICATIONS permission (Android 13+)
-- Check notification settings in Android Settings
-
----
-
-## 📊 Monitor Download Progress
-
-### **Via Logcat:**
 ```bash
-# Watch download worker logs
-adb logcat | grep GemmaDownloadWorker
+# Build native libraries (Whisper) + install APK
+./gradlew :app:installDebug
 
-# Watch repository logs
-adb logcat | grep GemmaDownloadRepository
-
-# Watch ViewModel logs
-adb logcat | grep GemmaDownloadViewModel
+# Or use Android Studio: Build → Make Project
 ```
 
-### **Check Download Status:**
+### Grant Permissions
 ```bash
-# List running WorkManager workers
-adb shell dumpsys activity service androidx.work.impl.background.systemalarm.SystemAlarmService
+adb shell pm grant com.whereikept.app android.permission.RECORD_AUDIO
+adb shell pm grant com.whereikept.app android.permission.CAMERA
 ```
 
-### **Check Model File:**
-```bash
-# Check if model file exists
-adb shell ls -lh /sdcard/Android/data/com.whereikept.app/files/models/gemma_3n_e2b_it_int4/1.0/
+## Test Cases
 
-# Check partial download (.tmp file)
-adb shell ls -lh /sdcard/Android/data/com.whereikept.app/files/models/gemma_3n_e2b_it_int4/1.0/*.tmp
+### Test 1: Basic Capture Flow (With Image)
+
+1. Launch app → Tap "Capture" tab
+2. Tap **Start Recording** → Say: "I'm putting my keys in the kitchen drawer next to the spoons"
+3. Tap **Stop Recording** → State changes to "Capture Image"
+4. Tap **Capture Image** → Take photo → "Analyzing with Gemma 3N..." screen
+5. **Review Tags** → Check extracted tags: "keys → kitchen drawer"
+6. Drag tag onto image, edit if needed
+7. Tap **Save & Submit** → "Success! Saved 1 item(s)"
+8. Switch to **Items** tab → Confirm item appears
+
+**Expected:** Item saved successfully with image reference
+
+### Test 2: Skip Image Flow (Text-Only)
+
+1. Tap **Start Recording** → Say: "My wallet is on the table"
+2. Tap **Stop Recording**
+3. Tap **Skip Image** → Analysis proceeds with text only
+4. Review tags → "wallet → table"
+5. Save
+
+**Expected:** Item saved without image
+
+### Test 3: Manual Tag Entry
+
+1. Record silence or speak something unclear
+2. Skip Image
+3. Empty tags screen → Tap **+ Add**
+4. Enter: "phone → desk" → Tap **Add**
+5. Save
+
+**Expected:** Manually added tag saved
+
+### Test 4: Error Handling
+
+1. Deny microphone permission → Verify permission error
+2. Record for < 1 second → May get "no speech detected"
+3. Test retry/skip buttons on error screens
+
+### Test 5: Model Download (First-Time Setup)
+
+1. Build and install app without models
+2. Launch → ModelDownloadScreen appears
+3. Tap **Download AI Model** → HuggingFace OAuth browser opens
+4. Sign in and accept Gemma license → Redirects back to app
+5. Download starts → Progress bar with speed/ETA
+6. After completion → Navigates to main screen
+7. Next launch → Skips download screen
+
+### Test 6: Download Resume
+
+1. Start download
+2. Force-close app mid-download
+3. Reopen → Tap **Resume Download**
+4. Download continues from where it stopped
+
+### Test 7: Analytics Consent
+
+1. First launch → Consent dialog appears
+2. Accept → Firebase events sent (verify in Firebase Console DebugView)
+3. Decline → No Firebase events
+4. Toggle in Settings → State changes correctly
+
+### Test 8: Offline Functionality
+
+1. Enable airplane mode
+2. Record, transcribe, analyze, save → All should work
+3. Search for saved items → Should work
+
+## Edge Cases
+
+- [ ] Record very short audio (< 1 second)
+- [ ] Record very long audio (> 60 seconds)
+- [ ] No tags extracted → empty state UI
+- [ ] Cancel recording mid-way → verify reset
+- [ ] Switch tabs during workflow → verify state preserved
+- [ ] Low storage scenario
+- [ ] Low memory scenario (budget device)
+
+## Debugging
+
+### Logcat Filters
+
+```bash
+# All app logs
+adb logcat | grep -E "CaptureViewModel|LlmService|SpeechRecognition|LibWhisper"
+
+# By component
+adb logcat | grep "CaptureViewModel"     # State transitions, tag management
+adb logcat | grep "LlmService"           # Gemma analysis, JSON parsing
+adb logcat | grep "SpeechRecognitionHelper"  # Audio recording, Whisper
+adb logcat | grep "WHISPER_JNI"          # Native Whisper JNI calls
+adb logcat | grep "GemmaDownloadWorker"  # Download progress
 ```
 
----
+### Common Issues
 
-## 🎯 Expected Download Times
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| "Model NOT FOUND" | Gemma model not on device | Push `.litertlm` file via adb or use in-app download |
+| "Whisper not initialized" | Whisper model missing | Auto-copied from assets; check logcat for copy errors |
+| Crash on image capture | FileProvider issue | Check AndroidManifest.xml FileProvider config |
+| Tags not extracting | LLM initialization failed | Check logcat for LlmService errors |
+| "Permission denied" | Missing runtime permission | Grant via Settings or adb |
+| "Can not open OpenCL library" | GPU not supported | Normal — auto-fallback to CPU backend |
+| ".task file error" | Incompatible format | Use `.litertlm` format instead |
 
-Based on network speed:
+### Model Verification
 
-| Speed | Download Time |
-|-------|---------------|
-| 10 Mbps | ~40 minutes |
-| 25 Mbps | ~16 minutes |
-| 50 Mbps | ~8 minutes |
-| 100 Mbps | ~4 minutes |
-| WiFi 6 | ~2 minutes |
+```bash
+# Check Gemma model
+adb shell ls -lh /sdcard/Android/data/com.whereikept.app/files/models/
 
-**Note:** First-time downloads may be slower due to HuggingFace CDN routing.
+# Check Whisper model
+adb shell ls -lh /sdcard/Android/data/com.whereikept.app/files/
+```
 
----
+## Performance Tips
 
-## 🔧 Debug Mode (Skip OAuth for Testing)
+1. Use physical device (not emulator) for realistic benchmarks
+2. Monitor memory with Android Profiler during inference
+3. Check thermal throttling in logcat (thermal_status)
+4. Whisper tiny model trades accuracy for speed — acceptable for most speech
 
-To test download without OAuth:
-
-1. Temporarily use a public model URL in `GemmaModel.kt`:
-   ```kotlin
-   val url: String = "https://example.com/test-model.bin" // Small test file
-   ```
-
-2. This bypasses HuggingFace OAuth
-3. Good for testing download/resume logic
-4. Switch back to real URL after testing
-
----
-
-## ✨ Success Indicators
-
-Your implementation is working if you see:
-
-1. ✅ **ModelDownloadScreen shows on first launch**
-2. ✅ **OAuth browser opens when tapping download**
-3. ✅ **Progress bar animates smoothly 0-100%**
-4. ✅ **Download speed and ETA update in real-time**
-5. ✅ **Notification shows in status bar**
-6. ✅ **Download resumes after app restart**
-7. ✅ **Main screen shows after download completes**
-8. ✅ **Subsequent launches skip download screen**
-
----
-
-## 📱 Test on Real Device
-
-**Important:** Test on a real Android device, not emulator:
-
-- Emulators have slow storage I/O
-- Network speeds are unpredictable
-- Background services may not work properly
-- OAuth browser flow works better on real device
-
----
-
-## 🚨 Before Release
-
-Final checks:
+## Pre-Release Checklist
 
 - [ ] Test on Android 8.0+ (API 26+)
 - [ ] Test on Android 13+ (notification permission)
-- [ ] Test with slow network (3G/4G)
+- [ ] Test with slow network (model download)
 - [ ] Test with interruptions (airplane mode, low battery)
 - [ ] Test storage full scenario
-- [ ] Verify model file is ~3 GB after download
+- [ ] Verify model files are correct sizes after download
 - [ ] Test app restart during download
 - [ ] Verify no crashes in logcat
-
----
-
-## 🎉 You're Ready!
-
-If all tests pass, your Gemma model download feature is production-ready!
-
-**Next Steps:**
-1. Test thoroughly with real HuggingFace account
-2. Verify OAuth flow works smoothly
-3. Test download on various network conditions
-4. Ship it! 🚀
-
----
-
-## 📞 Need Help?
-
-Check these logs for debugging:
-- `GemmaDownloadWorker` - Download progress
-- `GemmaDownloadRepository` - Repository operations
-- `GemmaDownloadViewModel` - UI state changes
-- `HuggingFaceAuthHelper` - OAuth flow
-- `LlmService` - Model initialization
-
-Happy testing! 🎊
+- [ ] Verify analytics consent dialog flow
+- [ ] Verify offline functionality in airplane mode

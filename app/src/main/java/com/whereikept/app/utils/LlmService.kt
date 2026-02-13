@@ -95,7 +95,7 @@ class LlmService private constructor(private val context: Context) {
 
         // Default LLM configuration (from Google AI Edge Gallery)
         // Internal visibility allows VersionMetricsCollector to read these for analytics
-        internal const val DEFAULT_MAX_TOKEN = 8192  // Gemma 3N E2B supports 32K context, using 8K for output
+        internal const val DEFAULT_MAX_TOKEN = 4096  // Gemma 3N E2B supports 32K context, using 4K for output
         internal const val DEFAULT_TOPK = 64
         internal const val DEFAULT_TOPP = 0.95
         internal const val DEFAULT_TEMPERATURE = 1.0
@@ -152,7 +152,7 @@ class LlmService private constructor(private val context: Context) {
 
                 val engineConfig = EngineConfig(
                     modelPath = modelPath.absolutePath,
-                    backend = Backend.CPU,  // Temporary: Use GPU for all processing
+                    backend = Backend.CPU,  // Use GPU for faster inference (always passes images)
                     visionBackend = Backend.GPU,  // MUST be GPU for Gemma 3N vision/multimodal
                     maxNumTokens = DEFAULT_MAX_TOKEN,
                     cacheDir = context.cacheDir.absolutePath

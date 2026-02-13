@@ -154,10 +154,7 @@ User Input → ViewModel (State Machine) → Services (Whisper, Gemma)
 ### Gemma 3N (LLM Inference)
 - Model: `gemma-3n-e2b-it-int4.litertlm` (~3 GB)
 - Format: `.litertlm` (recommended), also supports `.task`, `.bin`, `.tflite`
-- Performance benchmarks (Pixel 6):
-  - GPU: 23.3 tokens/sec (OpenCL)
-  - CPU: 17.6 tokens/sec (XNNPACK)
-  - NPU: 50-80+ tokens/sec (Qualcomm QNN, if available)
+- Backend auto-selection: GPU (OpenCL) → CPU (XNNPACK) → NPU (QNN)
 
 ## Project Structure
 
@@ -288,7 +285,7 @@ The ~74 MB native model stays in memory if kept loaded. Since users typically re
 - Gemma extraction: 1-4 seconds per transcription
 
 ### Storage
-- APK: ~200 MB (without models)
+- APK: ~80 MB (without models)
 - Whisper model: 74 MB
 - Gemma model: ~3 GB
 - Database: ~100 KB per 1000 items

@@ -314,16 +314,12 @@ WhereIKept/
 - Whisper: ~2-5 seconds
 - Gemma 3N: ~3-8 seconds
 
-### Inference Speed (Pixel 6)
+### Inference Speed
 - Whisper transcription: 2-3x real-time (3s audio → 6-9s processing)
 - Gemma extraction: 1-4 seconds per transcription
-- Gemma performance:
-  - GPU: 23.3 tokens/sec (OpenCL)
-  - CPU: 17.6 tokens/sec (XNNPACK)
-  - NPU: 50-80+ tokens/sec (Qualcomm QNN, if available)
 
 ### Storage
-- APK: ~200 MB (without models)
+- APK: ~80 MB (without models)
 - Whisper model: 74 MB
 - Gemma model: ~3 GB
 - Database: Grows with usage (~100 KB per 1000 items)
@@ -359,10 +355,10 @@ WhereIKept/
 
 ### Download Fails
 - Check internet connection
-- Verify HuggingFace OAuth is configured (see GEMMA_DOWNLOAD_IMPLEMENTATION.md)
+- Verify HuggingFace OAuth is configured (see [ARCHITECTURE.md](ARCHITECTURE.md))
 - Try canceling and restarting download
 
-For detailed troubleshooting, see [DEVELOPMENT.md](DEVELOPMENT.md).
+For detailed troubleshooting, see [TESTING_GUIDE.md](TESTING_GUIDE.md).
 
 ## Privacy
 
@@ -379,7 +375,7 @@ WhereIKept is designed with privacy as a core principle:
 
 - Android 8.0 (API 26) or higher
 - 4+ GB storage space (for AI models)
-- 2+ GB RAM recommended
+- 6+ GB RAM recommended
 - Microphone for voice recording
 - Camera for image capture
 
@@ -412,4 +408,4 @@ For issues, questions, or feature requests:
 
 ---
 
-**Built with privacy and offline-first principles. Your data never leaves your device.**
+**Built with privacy and offline-first principles. Your personal data stays on your device.**

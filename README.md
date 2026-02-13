@@ -6,7 +6,7 @@ A privacy-focused Android app that helps you remember where you stored your belo
 
 WhereIKept lets you record yourself while organizing items ("I'm putting my keys in the kitchen drawer"), captures a photo of the location, and automatically extracts object-location pairs using AI. Later, you can search to find where you stored anything.
 
-**Key Principle**: All AI processing happens on your device. No cloud dependency, no internet required (except for initial model download).
+**Key Principle**: All AI processing happens on your device. No cloud dependency, no internet required (except for initial model download and sending LLM performance metrics).
 
 ## Features
 
@@ -34,8 +34,8 @@ WhereIKept lets you record yourself while organizing items ("I'm putting my keys
 - All AI inference runs **on-device** (Whisper + Gemma 3N)
 - Voice recordings processed locally
 - Data stored in local Room database
-- No telemetry or cloud sync
-- Internet only needed for initial model download
+- LLM performance metrics sent to cloud for analytics
+- Internet only needed for initial model download and sending LLM performance metrics
 
 ## Architecture
 
@@ -248,10 +248,10 @@ WhereIKept/
 │   └── AndroidManifest.xml
 ├── build.gradle.kts
 ├── README.md                                   # This file
-├── DEVELOPMENT.md                              # Developer guide
-├── IMPLEMENTATION_SUMMARY.md                   # Enhanced workflow details
-├── QUICK_START_GUIDE.md                        # Testing guide
-└── GEMMA_DOWNLOAD_IMPLEMENTATION.md            # Download feature docs
+├── CHANGELOG.md                                # Version history
+├── ARCHITECTURE.md                             # Architecture & technical guide
+├── TESTING_GUIDE.md                            # Test cases & debugging
+└── docs/marketing/                             # Play Store, beta, outreach docs
 ```
 
 ## Data Model
@@ -331,10 +331,9 @@ WhereIKept/
 ## Documentation
 
 - **[README.md](README.md)** (this file) - Project overview and quick start
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Technical details, model setup, troubleshooting
-- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Enhanced workflow architecture
-- **[QUICK_START_GUIDE.md](QUICK_START_GUIDE.md)** - Testing guide with step-by-step flows
-- **[GEMMA_DOWNLOAD_IMPLEMENTATION.md](GEMMA_DOWNLOAD_IMPLEMENTATION.md)** - Model download feature guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - App architecture, technical details, and workflow
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Test cases, debugging, and pre-release checklist
 
 ## Troubleshooting
 
@@ -370,10 +369,10 @@ For detailed troubleshooting, see [DEVELOPMENT.md](DEVELOPMENT.md).
 WhereIKept is designed with privacy as a core principle:
 
 - All AI processing runs on your device
-- No data sent to cloud servers
-- No telemetry or analytics
 - Voice recordings and images stored locally
-- Internet only used for initial model download
+- LLM performance metrics (token counts, response times) sent to cloud for analytics
+- No personal data or content sent to cloud servers
+- Internet only used for initial model download and sending LLM performance metrics
 - No account required (except HuggingFace for model download)
 
 ## Requirements

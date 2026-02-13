@@ -212,6 +212,14 @@ class SpeechRecognitionHelper(private val context: Context) {
         _recordingDuration.value = 0L
         _audioLevel.value = 0f
 
+        // Re-initialize Whisper if it was released after previous transcription
+        if (!isWhisperInitialized || whisper == null) {
+            Log.i(TAG, "Whisper not initialized, re-initializing for next transcription...")
+            scope.launch {
+                initializeWhisper()
+            }
+        }
+
         try {
             audioRecord?.startRecording()
             isRecording = true
@@ -360,6 +368,11 @@ class SpeechRecognitionHelper(private val context: Context) {
         } finally {
             audioData.clear()
             Log.i(TAG, "✓ Audio buffer cleared")
+
+            // Release Whisper model to free ~74 MB of native memory
+            // It will be re-initialized when the user starts recording again
+            releaseWhisper()
+
             Log.i(TAG, "===========================================")
         }
     }
@@ -537,6 +550,16 @@ class SpeechRecognitionHelper(private val context: Context) {
         Log.d(TAG, "Recording cancelled")
     }
 
+    private fun releaseWhisper() {
+        if (whisper != null) {
+            Log.i(TAG, "Releasing Whisper model to free memory...")
+            whisper?.release()
+            whisper = null
+            isWhisperInitialized = false
+            Log.i(TAG, "✓ Whisper model released")
+        }
+    }
+
     fun resetState() {
         _state.value = RecognitionState.Idle
         _recordingDuration.value = 0L
@@ -554,10 +577,7 @@ class SpeechRecognitionHelper(private val context: Context) {
         audioRecord = null
         Log.i(TAG, "✓ AudioRecord released")
 
-        whisper?.release()
-        whisper = null
-        isWhisperInitialized = false
-        Log.i(TAG, "✓ Whisper resources released")
+        releaseWhisper()
 
         Log.i(TAG, "SpeechRecognitionHelper destroyed")
         Log.i(TAG, "===========================================")

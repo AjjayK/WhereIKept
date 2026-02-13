@@ -6,7 +6,7 @@ A privacy-focused Android app that helps you remember where you stored your belo
 
 WhereIKept lets you record yourself while organizing items ("I'm putting my keys in the kitchen drawer"), captures a photo of the location, and automatically extracts object-location pairs using AI. Later, you can search to find where you stored anything.
 
-**Key Principle**: All AI processing happens on your device. No cloud dependency, no internet required (except for initial model download).
+**Key Principle**: All AI processing happens on your device. No cloud dependency, no internet required (except for initial model download and sending LLM performance metrics).
 
 ## Features
 
@@ -34,8 +34,8 @@ WhereIKept lets you record yourself while organizing items ("I'm putting my keys
 - All AI inference runs **on-device** (Whisper + Gemma 3N)
 - Voice recordings processed locally
 - Data stored in local Room database
-- No telemetry or cloud sync
-- Internet only needed for initial model download
+- LLM performance metrics sent to cloud for analytics
+- Internet only needed for initial model download and sending LLM performance metrics
 
 ## Architecture
 
@@ -248,10 +248,10 @@ WhereIKept/
 │   └── AndroidManifest.xml
 ├── build.gradle.kts
 ├── README.md                                   # This file
-├── DEVELOPMENT.md                              # Developer guide
-├── IMPLEMENTATION_SUMMARY.md                   # Enhanced workflow details
-├── QUICK_START_GUIDE.md                        # Testing guide
-└── GEMMA_DOWNLOAD_IMPLEMENTATION.md            # Download feature docs
+├── CHANGELOG.md                                # Version history
+├── ARCHITECTURE.md                             # Architecture & technical guide
+├── TESTING_GUIDE.md                            # Test cases & debugging
+└── docs/marketing/                             # Play Store, beta, outreach docs
 ```
 
 ## Data Model
@@ -314,16 +314,12 @@ WhereIKept/
 - Whisper: ~2-5 seconds
 - Gemma 3N: ~3-8 seconds
 
-### Inference Speed (Pixel 6)
+### Inference Speed
 - Whisper transcription: 2-3x real-time (3s audio → 6-9s processing)
 - Gemma extraction: 1-4 seconds per transcription
-- Gemma performance:
-  - GPU: 23.3 tokens/sec (OpenCL)
-  - CPU: 17.6 tokens/sec (XNNPACK)
-  - NPU: 50-80+ tokens/sec (Qualcomm QNN, if available)
 
 ### Storage
-- APK: ~200 MB (without models)
+- APK: ~80 MB (without models)
 - Whisper model: 74 MB
 - Gemma model: ~3 GB
 - Database: Grows with usage (~100 KB per 1000 items)
@@ -331,10 +327,9 @@ WhereIKept/
 ## Documentation
 
 - **[README.md](README.md)** (this file) - Project overview and quick start
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Technical details, model setup, troubleshooting
-- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Enhanced workflow architecture
-- **[QUICK_START_GUIDE.md](QUICK_START_GUIDE.md)** - Testing guide with step-by-step flows
-- **[GEMMA_DOWNLOAD_IMPLEMENTATION.md](GEMMA_DOWNLOAD_IMPLEMENTATION.md)** - Model download feature guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - App architecture, technical details, and workflow
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Test cases, debugging, and pre-release checklist
 
 ## Troubleshooting
 
@@ -360,27 +355,27 @@ WhereIKept/
 
 ### Download Fails
 - Check internet connection
-- Verify HuggingFace OAuth is configured (see GEMMA_DOWNLOAD_IMPLEMENTATION.md)
+- Verify HuggingFace OAuth is configured (see [ARCHITECTURE.md](ARCHITECTURE.md))
 - Try canceling and restarting download
 
-For detailed troubleshooting, see [DEVELOPMENT.md](DEVELOPMENT.md).
+For detailed troubleshooting, see [TESTING_GUIDE.md](TESTING_GUIDE.md).
 
 ## Privacy
 
 WhereIKept is designed with privacy as a core principle:
 
 - All AI processing runs on your device
-- No data sent to cloud servers
-- No telemetry or analytics
 - Voice recordings and images stored locally
-- Internet only used for initial model download
+- LLM performance metrics (token counts, response times) sent to cloud for analytics
+- No personal data or content sent to cloud servers
+- Internet only used for initial model download and sending LLM performance metrics
 - No account required (except HuggingFace for model download)
 
 ## Requirements
 
 - Android 8.0 (API 26) or higher
 - 4+ GB storage space (for AI models)
-- 2+ GB RAM recommended
+- 6+ GB RAM recommended
 - Microphone for voice recording
 - Camera for image capture
 
@@ -413,4 +408,4 @@ For issues, questions, or feature requests:
 
 ---
 
-**Built with privacy and offline-first principles. Your data never leaves your device.**
+**Built with privacy and offline-first principles. Your personal data stays on your device.**

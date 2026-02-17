@@ -96,12 +96,7 @@ Check the [Issues](https://github.com/AjjayK/WhereIKept/issues) tab for open iss
 
 ## Testing
 
-Before submitting a PR, test these flows:
-1. Full capture workflow (record → transcribe → capture image → extract → save)
-2. Search functionality
-3. Edge cases: empty recordings, no image, long transcriptions
-
-See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed test cases and Logcat filters.
+Before submitting a PR, make sure all existing test cases in [TESTING_GUIDE.md](TESTING_GUIDE.md) still pass. If your change adds new functionality, add corresponding test cases to your PR description.
 
 ## Debugging
 

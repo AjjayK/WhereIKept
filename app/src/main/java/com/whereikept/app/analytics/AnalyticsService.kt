@@ -97,9 +97,18 @@ class AnalyticsService private constructor(private val context: Context) {
         try {
             // Only initialize if user has consented
             if (preferencesManager.isAnalyticsEnabled()) {
-                firebaseAnalytics = Firebase.analytics
-                firebaseAnalytics?.setAnalyticsCollectionEnabled(true)
-                Log.i(TAG, "Firebase Analytics initialized (user opted in)")
+                firebaseAnalytics = try {
+                    Firebase.analytics.also {
+                        it.setAnalyticsCollectionEnabled(true)
+                    }
+                } catch (e: Exception) {
+                    // Firebase not available (e.g. google-services.json missing in open-source builds)
+                    Log.w(TAG, "Firebase not available - analytics will be local-only")
+                    null
+                }
+                if (firebaseAnalytics != null) {
+                    Log.i(TAG, "Firebase Analytics initialized (user opted in)")
+                }
             } else {
                 Log.i(TAG, "Firebase Analytics disabled (user opted out)")
             }
@@ -115,8 +124,12 @@ class AnalyticsService private constructor(private val context: Context) {
     suspend fun enableAnalytics() {
         try {
             preferencesManager.enableAnalytics()
-            firebaseAnalytics = Firebase.analytics
-            firebaseAnalytics?.setAnalyticsCollectionEnabled(true)
+            firebaseAnalytics = try {
+                Firebase.analytics.also { it.setAnalyticsCollectionEnabled(true) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Firebase not available - analytics will be local-only")
+                null
+            }
             Log.i(TAG, "Analytics enabled by user")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to enable analytics", e)

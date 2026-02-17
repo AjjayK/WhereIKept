@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the details below.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the app is affected?
+      options:
+        - Voice Recording
+        - Whisper Transcription
+        - Image Capture
+        - Gemma AI Extraction
+        - Tag Editing / Review
+        - Search
+        - Model Download
+        - Settings / Analytics
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly. What did you expect vs what actually happened?
+      placeholder: "I tapped 'Start Recording' but the audio visualization didn't appear..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open the Capture tab
+        2. Tap Start Recording
+        3. Speak for 3 seconds
+        4. Tap Stop Recording
+        5. See error...
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Phone model
+      placeholder: "Pixel 6, Samsung Galaxy S24, etc."
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version
+      placeholder: "Android 14 (API 34)"
+    validations:
+      required: true
+
+  - type: input
+    id: ram
+    attributes:
+      label: RAM
+      placeholder: "8 GB"
+    validations:
+      required: false
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Found in Settings
+      placeholder: "1.1.2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logcat output (if available)
+      description: Filter by `WhereIKept`, `Whisper`, `LlmService`, or `CaptureVM`
+      render: shell
+    validations:
+      required: false

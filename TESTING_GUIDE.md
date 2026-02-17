@@ -97,13 +97,65 @@ adb shell pm grant com.whereikept.app android.permission.CAMERA
 2. Record, transcribe, analyze, save → All should work
 3. Search for saved items → Should work
 
+### Test 9: Search by Object and Location
+
+1. Save an item: "keys → kitchen drawer"
+2. Go to **Find** tab → Search "keys" → Item appears
+3. Search "kitchen drawer" → Same item appears
+4. Search "wallet" → No results (or unrelated items)
+
+**Expected:** Search works by both object name and location
+
+### Test 10: Delete Item
+
+1. Go to **Items** tab
+2. Tap trash icon on a saved item → Confirm delete
+3. Search for the deleted item → Should not appear
+
+**Expected:** Item removed from database and search index
+
+### Test 11: Multiple Items in One Recording
+
+1. Record: "I'm putting my keys in the drawer and my passport in the bedroom closet"
+2. Complete the capture flow
+3. Review → Should extract two tag pairs: "keys → drawer" and "passport → bedroom closet"
+
+**Expected:** Multiple object-location pairs extracted from a single recording
+
+### Test 12: Back Button During Capture
+
+1. Start a recording → Press back
+2. Start again → Capture image → Press back
+3. Verify workflow resets cleanly at each state
+
+**Expected:** No stuck states, clean reset to IDLE
+
+### Test 13: Whisper Memory Release
+
+1. Complete a full capture (record → transcribe → save)
+2. Check Logcat for "Whisper model released"
+3. Start a new recording → Check Logcat for "re-initializing" message
+
+**Expected:** Whisper model freed after transcription, re-initialized on next recording
+
+### Test 14: Model Not Available
+
+1. Uninstall/remove Gemma model from device
+2. Complete recording + transcription
+3. Verify error message shown (not a crash)
+4. Verify manual tag entry still works as fallback
+
+**Expected:** Graceful error handling when Gemma model is missing
+
 ## Edge Cases
 
 - [ ] Record very short audio (< 1 second)
 - [ ] Record very long audio (> 60 seconds)
+- [ ] Record silence → no speech detected
 - [ ] No tags extracted → empty state UI
 - [ ] Cancel recording mid-way → verify reset
 - [ ] Switch tabs during workflow → verify state preserved
+- [ ] App cold start → verify models initialize correctly
 - [ ] Low storage scenario
 - [ ] Low memory scenario (budget device)
 
